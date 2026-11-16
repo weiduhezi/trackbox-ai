@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 仓库公开之后也可以：
 
 ```powershell
-irm https://raw.githubusercontent.com/liuheng3580/trackbox-cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/install.ps1 | iex
 ```
 
 macOS / Linux：

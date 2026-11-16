@@ -1,5 +1,5 @@
 # TrackBox CLI installer for Windows.
-# irm https://raw.githubusercontent.com/liuheng3580/trackbox-cli/main/install.ps1 | iex
+# irm https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/install.ps1 | iex
 # Local: powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 $ErrorActionPreference = 'Stop'
@@ -17,7 +17,7 @@ $target = Join-Path $dest 'trackbox.mjs'
 if ($localScript -and (Test-Path $localScript)) {
   Copy-Item $localScript $target -Force
 } else {
-  $source = 'https://raw.githubusercontent.com/liuheng3580/trackbox-cli/main/bin/trackbox.mjs'
+  $source = 'https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/bin/trackbox.mjs'
   Invoke-WebRequest -Uri $source -OutFile $target -UseBasicParsing
 }
 

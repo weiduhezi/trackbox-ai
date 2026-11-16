@@ -1,6 +1,6 @@
 #!/bin/sh
 # TrackBox CLI installer for macOS and Linux.
-# curl -fsSL https://raw.githubusercontent.com/liuheng3580/trackbox-cli/main/install.sh | sh
+# curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/install.sh | sh
 
 set -eu
 
@@ -20,7 +20,7 @@ if [ -f "${SOURCE_DIR}/bin/trackbox.mjs" ]; then
 else
   curl -fsSL --proto '=https' --tlsv1.2 \
     -o "${LIB_DIR}/trackbox.mjs" \
-    "https://raw.githubusercontent.com/liuheng3580/trackbox-cli/main/bin/trackbox.mjs"
+    "https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/bin/trackbox.mjs"
 fi
 
 cat > "${BIN_DIR}/trackbox" <<'EOF'
