@@ -1,8 +1,8 @@
-# TrackBox CLI installer for Windows.
+$ErrorActionPreference = 'Stop'
+# TrackBox AI installer for Windows.
 # irm https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.ps1 | iex
 # Local: powershell -ExecutionPolicy Bypass -File .\cli\install.ps1
-
-$ErrorActionPreference = 'Stop'
+# trackbox-ai-install-rev 2
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw 'node is required. Install Node.js 20 or newer, then run this script again.'
