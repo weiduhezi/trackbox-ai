@@ -1,0 +1,16 @@
+{
+  "name": "trackbox-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TrackBox CLI：浏览器授权后连接本机或线上 TrackBox",
+  "bin": {
+    "trackbox": "./bin/trackbox.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

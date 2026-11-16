@@ -1,0 +1,108 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import test from 'node:test';
+import {
+  buildAuthorizeUrl,
+  createPkcePair,
+  formatAccount,
+  parseArgs,
+  readCredentials,
+  readProjects,
+  shouldRefresh,
+  writeCredentials,
+} from '../bin/trackbox.mjs';
+
+test('parseArgs 读取登录地址和范围', () => {
+  const parsed = parseArgs([
+    'node',
+    'trackbox',
+    'login',
+    '--url',
+    'http://localhost:3000',
+    '--scope',
+    'canvas:read',
+  ]);
+  assert.equal(parsed.command, 'login');
+  assert.equal(parsed.options.url, 'http://localhost:3000');
+  assert.equal(parsed.options.scope, 'canvas:read');
+});
+
+test('PKCE S256 challenge 由 verifier 算出', () => {
+  const { verifier, challenge } = createPkcePair();
+  const expected = createHash('sha256').update(verifier).digest('base64url');
+  assert.equal(challenge, expected);
+  assert.ok(verifier.length >= 43);
+});
+
+test('授权地址带上 PKCE 和回跳', () => {
+  const url = buildAuthorizeUrl({
+    origin: 'http://localhost:3000',
+    clientId: 'tbx_client_demo',
+    redirectUri: 'http://127.0.0.1:9/oauth/callback',
+    scope: 'canvas:read',
+    state: 'state-1',
+    challenge: 'challenge-1',
+  });
+  assert.equal(url.origin, 'http://localhost:3000');
+  assert.equal(url.pathname, '/authorize');
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(url.searchParams.get('redirect_uri'), 'http://127.0.0.1:9/oauth/callback');
+  assert.equal(url.searchParams.get('client_id'), 'tbx_client_demo');
+});
+
+test('凭证写入后再读出', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trackbox-cli-'));
+  const file = join(dir, 'cli-credentials.json');
+  try {
+    writeCredentials(file, {
+      origin: 'http://localhost:3000',
+      accessToken: 'tbx_test',
+      refreshToken: 'tbx_rt_test',
+    });
+    const loaded = readCredentials(file);
+    assert.equal(loaded.accessToken, 'tbx_test');
+    assert.equal(readCredentials(join(dir, 'missing.json')), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('临近过期才刷新', () => {
+  const now = 1_000_000;
+  assert.equal(shouldRefresh(now + 30_000, now), true);
+  assert.equal(shouldRefresh(now + 120_000, now), false);
+  assert.equal(shouldRefresh(undefined, now), false);
+});
+
+test('从 MCP 工具结果取出项目列表', () => {
+  const projects = readProjects({
+    result: {
+      structuredContent: {
+        projects: [{ project_id: 'p1', name: '演示' }],
+      },
+    },
+  });
+  assert.equal(projects[0].name, '演示');
+  assert.match(formatAccount({
+    origin: 'http://localhost:3000',
+    scope: 'canvas:read',
+    serverName: 'trackbox-trackai-canvas-mcp',
+    serverVersion: '1.0.0',
+    projects,
+  }), /已连接 TrackBox/);
+});
+
+test('工具错误不会被当成空项目', () => {
+  assert.throws(
+    () => readProjects({
+      result: {
+        content: [{ type: 'text', text: JSON.stringify({ error: '缺少权限' }) }],
+        isError: true,
+      },
+    }),
+    /缺少权限/,
+  );
+});
