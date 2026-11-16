@@ -1,4 +1,4 @@
-﻿# TrackBox CLI installer for Windows.
+# TrackBox CLI installer for Windows.
 # irm https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/install.ps1 | iex
 # Local: powershell -ExecutionPolicy Bypass -File .\install.ps1
 
@@ -8,7 +8,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw 'node is required. Install Node.js 20 or newer, then run this script again.'
 }
 
-# 独立目录，避免与桌面端 %LOCALAPPDATA%\Programs\trackbox\TrackBox.exe 在 PATH 中因 PATHEXT (.EXE > .CMD) 冲突
+# Use trackbox-cli directory to avoid PATHEXT collision with TrackBox.exe in Programs\trackbox
 $legacyDesktopDir = Join-Path $env:LOCALAPPDATA 'Programs\trackbox'
 foreach ($staleFile in @('trackbox.cmd', 'trackbox.mjs')) {
   $stalePath = Join-Path $legacyDesktopDir $staleFile
