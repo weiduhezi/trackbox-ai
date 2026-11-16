@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "trackbox": {
-      "type": "http",
-      "url": "http://mcp.trackbox.top/mcp"
-    }
-  }
-}
