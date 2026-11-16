@@ -1,8 +1,10 @@
 $ErrorActionPreference = 'Stop'
-# TrackBox AI installer for Windows.
+# Windows PowerShell 5.1 的下载进度条会把控制台卡住，看起来像安装程序一直不退出
+$ProgressPreference = 'SilentlyContinue'
+# TrackBox AI installer for Windows. One-shot: installs files, updates PATH, then exits.
 # irm https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.ps1 | iex
 # Local: powershell -ExecutionPolicy Bypass -File .\cli\install.ps1
-# trackbox-ai-install-rev 2
+# trackbox-ai-install-rev 3
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw 'node is required. Install Node.js 20 or newer, then run this script again.'
@@ -32,7 +34,16 @@ if ($localScript -and (Test-Path $localScript)) {
   Copy-Item $localScript $target -Force
 } else {
   $source = 'https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/bin/trackbox.mjs'
-  Invoke-WebRequest -Uri $source -OutFile $target -UseBasicParsing
+  Write-Output "Downloading trackbox.mjs..."
+  try {
+    Invoke-WebRequest -Uri $source -OutFile $target -UseBasicParsing -TimeoutSec 20
+  } catch {
+    if (Test-Path $target) {
+      Write-Output "Download timed out. Kept the existing install at $target"
+    } else {
+      throw "Download timed out and trackbox is not installed yet. Check access to raw.githubusercontent.com and run the command again."
+    }
+  }
 }
 
 $cmd = Join-Path $dest 'trackbox.cmd'
