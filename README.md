@@ -1,4 +1,4 @@
-# TrackBox Marketplace
+# TrackBox AI
 
 TrackBox 的命令行工具（[`cli`](cli)）与智能体技能目录（[`skills`](skills)），提供统一的生产接入标识：`trackbox`。
 
@@ -17,13 +17,13 @@ TrackBox 的命令行工具（[`cli`](cli)）与智能体技能目录（[`skills
 Windows（PowerShell）：
 
 ```powershell
-irm https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/cli/install.ps1 | iex
+irm https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.ps1 | iex
 ```
 
 macOS / Linux：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/cli/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.sh | sh
 ```
 
 装完在终端执行 `trackbox login` 完成 TrackBox OAuth 浏览器授权即可使用。每位使用者用自己的 TrackBox 身份完成授权。
@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/cli/ins
 ### 2. 安装随包 Skills（[`skills/`](skills)）
 
 ```bash
-npx skills add weiduhezi/trackbox-cli
+npx skills add weiduhezi/trackbox-ai
 ```
 
 ## 随包 Skills
@@ -52,10 +52,10 @@ npx skills add weiduhezi/trackbox-cli
 
 ```bash
 # 更新 Skills
-npx skills add weiduhezi/trackbox-cli
+npx skills add weiduhezi/trackbox-ai
 
 # 更新 CLI（重新执行安装脚本覆盖即可）
-curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/cli/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.sh | sh
 ```
 
 更新后新建任务或运行 `trackbox doctor` 验证。未授权时连接地址返回 `401` 并给出 `WWW-Authenticate: Bearer`，两个 OAuth well-known 端点返回 `200`，这是预期状态。
