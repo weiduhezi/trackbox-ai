@@ -69,7 +69,7 @@ test('授权地址带上 PKCE 和回跳', () => {
 });
 
 test('凭证写入后再读出', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'trackbox-cli-'));
+  const dir = mkdtempSync(join(tmpdir(), 'trackbox-ai-'));
   const file = join(dir, 'cli-credentials.json');
   try {
     writeCredentials(file, {

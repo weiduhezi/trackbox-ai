@@ -99,7 +99,7 @@ export const buildAuthorizeUrl = ({ origin, clientId, redirectUri, scope, state,
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
-  url.searchParams.set('mcp_oauth_client', 'trackbox-cli');
+  url.searchParams.set('mcp_oauth_client', 'trackbox-ai');
   return url;
 };
 
@@ -308,7 +308,7 @@ const waitForAuthorizationCode = ({ origin, scope }) =>
           const port = typeof address === 'object' && address ? address.port : 0;
           const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
           const registered = await postJson(`${origin}/register`, {
-            client_name: 'trackbox-cli',
+            client_name: 'trackbox-ai',
             redirect_uris: [redirectUri],
             grant_types: ['authorization_code', 'refresh_token'],
             response_types: ['code'],
@@ -436,7 +436,7 @@ const account = async ({ file, json }) => {
     const initialized = await callMcp(current, 'initialize', {
       protocolVersion: '2025-03-26',
       capabilities: {},
-      clientInfo: { name: 'trackbox-cli', version: VERSION },
+      clientInfo: { name: 'trackbox-ai', version: VERSION },
     }, 1);
     const listed = await callMcp(current, 'tools/call', {
       name: 'list_canvas_projects',
