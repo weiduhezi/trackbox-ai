@@ -1,0 +1,16 @@
+{
+  "name": "trackbox",
+  "description": "Official TrackBox plugin: the TrackBox MCP server plus agent skills for AI canvas, creative production, and video/image prompting workflows.",
+  "owner": {
+    "name": "TrackBox",
+    "url": "https://trackbox.top"
+  },
+  "plugins": [
+    {
+      "name": "trackbox",
+      "displayName": "TrackBox",
+      "source": "./",
+      "description": "Create and manage AI canvas, visual assets, and video workflows with TrackBox."
+    }
+  ]
+}

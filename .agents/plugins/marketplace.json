@@ -1,0 +1,20 @@
+{
+  "name": "trackbox",
+  "interface": {
+    "displayName": "trackbox"
+  },
+  "plugins": [
+    {
+      "name": "trackbox",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creativity"
+    }
+  ]
+}

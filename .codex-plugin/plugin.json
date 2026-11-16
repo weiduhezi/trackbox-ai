@@ -1,0 +1,28 @@
+{
+  "name": "trackbox",
+  "version": "1.0.0",
+  "description": "在 Codex、Claude、Cursor 等智能体里用 TrackBox 做视觉创作。",
+  "author": {
+    "name": "TrackBox",
+    "url": "https://trackbox.top"
+  },
+  "homepage": "https://trackbox.top",
+  "repository": "https://github.com/weiduhezi/trackbox-cli",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "TrackBox",
+    "shortDescription": "TrackBox 画布、生成与创作工作流",
+    "longDescription": "用 TrackBox 在智能体里做完整的视觉创作。通过 TrackBox Remote MCP 与随包 Skills，可在对话中查看画布项目、检索与编排节点、撰写 Seedance / Kling / Nano Banana / GPT Image 提示词，并在确认后提交生成与资产入库。连接你的 TrackBox 账号即可开始。",
+    "developerName": "TrackBox",
+    "category": "Creativity",
+    "capabilities": ["Read", "Write", "Interactive"],
+    "brandColor": "#FB23C2",
+    "websiteURL": "https://trackbox.top",
+    "defaultPrompt": [
+      "查看我在 TrackBox 中的画布项目",
+      "在当前画板创建一个 16:9 的产品广告视频节点",
+      "用 Seedance 提示词技能为我的产品写一段 15 秒视频脚本"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
