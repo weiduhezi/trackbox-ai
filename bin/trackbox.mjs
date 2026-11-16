@@ -2,7 +2,7 @@
 /**
  * TrackBox CLI。
  * 登录走产品站已有的 OAuth 2.1 + PKCE（/register、/authorize、/token），
- * 连接证明走同一来源的 MCP（/mcp）列出当前账号可见的画布项目。
+ * 连接证明与工具调用走同一来源的 MCP（/mcp）。
  */
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import * as readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 export const VERSION = '0.1.0';
@@ -30,7 +31,7 @@ export const normalizeOrigin = (value) => {
 
 export const parseArgs = (argv) => {
   const args = argv.slice(2);
-  const options = { url: '', scope: '', json: false };
+  const options = { url: '', scope: '', json: false, positionals: [] };
 
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     return { command: 'help', options };
@@ -74,7 +75,10 @@ export const parseArgs = (argv) => {
     if (arg === '--help' || arg === '-h') {
       return { command: 'help', options };
     }
-    throw new Error(`未知参数 '${arg}'`);
+    if (arg.startsWith('-')) {
+      throw new Error(`未知参数 '${arg}'`);
+    }
+    options.positionals.push(arg);
   }
 
   return { command, options };
@@ -164,17 +168,31 @@ export const formatAccount = ({ origin, scope, serverName, serverVersion, projec
   return lines.join('\n');
 };
 
+export const formatTools = (tools) => {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return '（没有可用工具）';
+  }
+  return tools
+    .map((tool) => `- ${tool.name}: ${tool.description || ''}`)
+    .join('\n');
+};
+
 const usage = () => `TrackBox CLI ${VERSION}
 
-  trackbox login              浏览器授权并保存凭证
-  trackbox account            确认已连接，并列出可见画布项目
-  trackbox logout             吊销令牌并删除本地凭证
-  trackbox doctor             检查产品站 OAuth 端点是否可达
+  trackbox login                      浏览器授权并保存凭证
+  trackbox account                    确认已连接，并列出可见画布项目
+  trackbox tools                      列出当前账号可调用的 TrackBox 工具
+  trackbox call <tool> [json_args]    调用指定工具（默认参数 {}）
+  trackbox mcp                        以标准 MCP stdio 模式运行
+  trackbox logout                     吊销令牌并删除本地凭证
+  trackbox doctor                     检查产品站 OAuth 端点是否可达
   trackbox version
 
   trackbox login --url http://localhost:3000
   trackbox login --scope "canvas:read canvas:write"
   trackbox account --json
+  trackbox tools --json
+  trackbox call list_canvas_projects '{"limit":5}'
 `;
 
 const readErrorMessage = async (response) => {
@@ -402,9 +420,19 @@ const callMcp = async (stored, method, params, id) => {
   return text.trim() ? JSON.parse(text) : {};
 };
 
-const account = async ({ file, json }) => {
+const withAutoRefreshMcp = async (file, fn) => {
   let stored = await ensureFreshCredentials(file);
-  const load = async (current) => {
+  try {
+    return { stored, data: await fn(stored) };
+  } catch (error) {
+    if (error?.status !== 401) throw error;
+    stored = await refreshCredentials(stored, file);
+    return { stored, data: await fn(stored) };
+  }
+};
+
+const account = async ({ file, json }) => {
+  const { stored, data: result } = await withAutoRefreshMcp(file, async (current) => {
     const initialized = await callMcp(current, 'initialize', {
       protocolVersion: '2025-03-26',
       capabilities: {},
@@ -415,16 +443,7 @@ const account = async ({ file, json }) => {
       arguments: { limit: 20 },
     }, 2);
     return { initialized, listed };
-  };
-
-  let result;
-  try {
-    result = await load(stored);
-  } catch (error) {
-    if (error?.status !== 401) throw error;
-    stored = await refreshCredentials(stored, file);
-    result = await load(stored);
-  }
+  });
 
   const serverInfo = result.initialized?.result?.serverInfo ?? {};
   const projects = readProjects(result.listed);
@@ -448,6 +467,106 @@ const account = async ({ file, json }) => {
     serverVersion: payload.server.version,
     projects,
   })}\n`);
+};
+
+const listTools = async ({ file, json }) => {
+  const { data: rpc } = await withAutoRefreshMcp(file, (current) =>
+    callMcp(current, 'tools/list', {}, 1),
+  );
+  if (rpc.error?.message) {
+    throw new Error(rpc.error.message);
+  }
+  const tools = Array.isArray(rpc.result?.tools) ? rpc.result.tools : [];
+  if (json) {
+    process.stdout.write(`${JSON.stringify({ tools }, null, 2)}\n`);
+    return;
+  }
+  process.stdout.write(`${formatTools(tools)}\n`);
+};
+
+const callToolCommand = async ({ file, toolName, rawArgs, json }) => {
+  if (!toolName) {
+    throw new Error('请指定工具名，例如: trackbox call list_canvas_projects');
+  }
+  let parsedArgs = {};
+  if (rawArgs) {
+    try {
+      parsedArgs = JSON.parse(rawArgs);
+    } catch {
+      throw new Error('工具参数必须是合法 JSON 对象');
+    }
+  }
+  const { data: rpc } = await withAutoRefreshMcp(file, (current) =>
+    callMcp(current, 'tools/call', { name: toolName, arguments: parsedArgs }, 1),
+  );
+  if (rpc.error?.message) {
+    throw new Error(rpc.error.message);
+  }
+  if (rpc.result?.isError) {
+    const errText = rpc.result?.content?.[0]?.text || '工具执行失败';
+    throw new Error(errText);
+  }
+  const output = rpc.result?.structuredContent ?? rpc.result;
+  if (json) {
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+    return;
+  }
+  const text = rpc.result?.content?.[0]?.text;
+  process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(output, null, 2)}\n`);
+};
+
+const runMcpStdio = async ({ file }) => {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    terminal: false,
+  });
+
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    try {
+      const { data: reply } = await withAutoRefreshMcp(file, async (current) => {
+        const response = await fetch(current.mcpUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Authorization: `Bearer ${current.accessToken}`,
+          },
+          body: trimmed,
+        });
+        if (response.status === 401) {
+          throw Object.assign(new Error('访问令牌被拒绝'), { status: 401 });
+        }
+        if (response.status === 202 || response.status === 204) {
+          return null;
+        }
+        const text = await response.text();
+        return text.trim() || null;
+      });
+      if (reply) {
+        process.stdout.write(`${reply}\n`);
+      }
+    } catch (error) {
+      if (parsed?.id !== undefined) {
+        process.stdout.write(`${JSON.stringify({
+          jsonrpc: '2.0',
+          id: parsed.id ?? null,
+          error: {
+            code: -32000,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        })}\n`);
+      }
+    }
+  }
 };
 
 const logout = async (file) => {
@@ -505,6 +624,23 @@ export const run = async (argv, env = {}) => {
   }
   if (command === 'account') {
     await account({ file, json: options.json });
+    return;
+  }
+  if (command === 'tools') {
+    await listTools({ file, json: options.json });
+    return;
+  }
+  if (command === 'call') {
+    await callToolCommand({
+      file,
+      toolName: options.positionals[0],
+      rawArgs: options.positionals[1],
+      json: options.json,
+    });
+    return;
+  }
+  if (command === 'mcp') {
+    await runMcpStdio({ file });
     return;
   }
   if (command === 'logout') {

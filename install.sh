@@ -14,8 +14,12 @@ BIN_DIR="${PREFIX}/bin"
 LIB_DIR="${PREFIX}/lib/trackbox"
 mkdir -p "$BIN_DIR" "$LIB_DIR"
 
-SOURCE_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-if [ -f "${SOURCE_DIR}/bin/trackbox.mjs" ]; then
+SOURCE_DIR=""
+case "$0" in
+  */*) SOURCE_DIR=$(CDPATH= cd -- "$(dirname "$0")" 2>/dev/null && pwd || true) ;;
+esac
+
+if [ -n "$SOURCE_DIR" ] && [ -f "${SOURCE_DIR}/bin/trackbox.mjs" ]; then
   cp "${SOURCE_DIR}/bin/trackbox.mjs" "${LIB_DIR}/trackbox.mjs"
 else
   curl -fsSL --proto '=https' --tlsv1.2 \

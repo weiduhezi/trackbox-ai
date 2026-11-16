@@ -1,4 +1,4 @@
-# TrackBox CLI installer for Windows.
+﻿# TrackBox CLI installer for Windows.
 # irm https://raw.githubusercontent.com/weiduhezi/trackbox-cli/main/install.ps1 | iex
 # Local: powershell -ExecutionPolicy Bypass -File .\install.ps1
 
@@ -8,7 +8,16 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw 'node is required. Install Node.js 20 or newer, then run this script again.'
 }
 
-$dest = Join-Path $env:LOCALAPPDATA 'Programs\trackbox'
+# 独立目录，避免与桌面端 %LOCALAPPDATA%\Programs\trackbox\TrackBox.exe 在 PATH 中因 PATHEXT (.EXE > .CMD) 冲突
+$legacyDesktopDir = Join-Path $env:LOCALAPPDATA 'Programs\trackbox'
+foreach ($staleFile in @('trackbox.cmd', 'trackbox.mjs')) {
+  $stalePath = Join-Path $legacyDesktopDir $staleFile
+  if (Test-Path $stalePath) {
+    Remove-Item $stalePath -Force -ErrorAction SilentlyContinue
+  }
+}
+
+$dest = Join-Path $env:LOCALAPPDATA 'Programs\trackbox-cli'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
 $localScript = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'bin\trackbox.mjs' } else { '' }
@@ -29,12 +38,12 @@ $cmd = Join-Path $dest 'trackbox.cmd'
 
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $userPath) { $userPath = '' }
-$parts = $userPath -split ';' | Where-Object { $_ -and ($_ -ne $dest) }
+$parts = $userPath -split ';' | Where-Object { $_ -and ($_ -ne $dest) -and ($_ -ne $legacyDesktopDir) }
 $updated = (@($dest) + $parts) -join ';'
 [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
-if (($env:Path -split ';') -notcontains $dest) {
-  $env:Path = "$dest;$env:Path"
-}
+
+$sessionParts = ($env:Path -split ';') | Where-Object { $_ -and ($_ -ne $dest) -and ($_ -ne $legacyDesktopDir) }
+$env:Path = (@($dest) + $sessionParts) -join ';'
 
 Write-Output "Installed trackbox to $target"
-Write-Output 'Open a new terminal, then run: trackbox doctor'
+Write-Output 'Run: trackbox doctor'

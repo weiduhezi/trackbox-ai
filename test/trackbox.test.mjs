@@ -8,6 +8,7 @@ import {
   buildAuthorizeUrl,
   createPkcePair,
   formatAccount,
+  formatTools,
   parseArgs,
   readCredentials,
   readProjects,
@@ -28,6 +29,20 @@ test('parseArgs 读取登录地址和范围', () => {
   assert.equal(parsed.command, 'login');
   assert.equal(parsed.options.url, 'http://localhost:3000');
   assert.equal(parsed.options.scope, 'canvas:read');
+});
+
+test('parseArgs 支持 call 命令位置参数', () => {
+  const parsed = parseArgs([
+    'node',
+    'trackbox',
+    'call',
+    'list_canvas_projects',
+    '{"limit":5}',
+    '--json',
+  ]);
+  assert.equal(parsed.command, 'call');
+  assert.deepEqual(parsed.options.positionals, ['list_canvas_projects', '{"limit":5}']);
+  assert.equal(parsed.options.json, true);
 });
 
 test('PKCE S256 challenge 由 verifier 算出', () => {
@@ -77,7 +92,7 @@ test('临近过期才刷新', () => {
   assert.equal(shouldRefresh(undefined, now), false);
 });
 
-test('从 MCP 工具结果取出项目列表', () => {
+test('从 MCP 工具结果取出项目列表与格式化工具列表', () => {
   const projects = readProjects({
     result: {
       structuredContent: {
@@ -93,6 +108,10 @@ test('从 MCP 工具结果取出项目列表', () => {
     serverVersion: '1.0.0',
     projects,
   }), /已连接 TrackBox/);
+  assert.match(
+    formatTools([{ name: 'list_canvas_projects', description: '列出画布项目' }]),
+    /list_canvas_projects/,
+  );
 });
 
 test('工具错误不会被当成空项目', () => {
