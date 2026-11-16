@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import * as readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '0.1.0';
+export const VERSION = '1.0.0';
 export const DEFAULT_ORIGIN = 'http://localhost:3000';
 export const DEFAULT_SCOPE = 'canvas:read canvas:write';
 const REFRESH_BUFFER_MS = 60_000;
