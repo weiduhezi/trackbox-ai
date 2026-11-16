@@ -1,4 +1,4 @@
-﻿# TrackBox CLI installer for Windows.
+# TrackBox CLI installer for Windows.
 # irm https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.ps1 | iex
 # Local: powershell -ExecutionPolicy Bypass -File .\cli\install.ps1
 
