@@ -49,6 +49,33 @@ npx skills add weiduhezi/trackbox-ai
 
 插件通过本机 `trackbox mcp` 连接，所以要先完成 CLI 安装和 `trackbox login`。
 
+## 命令
+
+`trackbox` 有 8 个命令。终端执行 `trackbox --help` 可查看同样的说明。
+
+| 命令 | 作用 |
+| --- | --- |
+| `trackbox login` | 打开浏览器授权，把凭证保存在本机 |
+| `trackbox account` | 确认已连接，并列出可见的画布项目 |
+| `trackbox tools` | 列出当前账号能调用的画布工具 |
+| `trackbox call <工具名> [json]` | 调用某一个工具 |
+| `trackbox mcp` | 以标准 MCP 的 stdio 模式运行，给 Cursor、Claude 接 |
+| `trackbox logout` | 吊销令牌并删除本机凭证 |
+| `trackbox doctor` | 检查产品站的授权、换票、注册地址是否可达 |
+| `trackbox version` | 显示版本 |
+
+常用参数：
+
+```bash
+trackbox login --url http://localhost:3000
+trackbox login --scope "canvas:read canvas:write canvas:run"
+trackbox account --json
+trackbox tools --json
+trackbox call list_canvas_projects "{\"limit\":5}"
+```
+
+`trackbox login` 不带 `--url` 时连 `http://localhost:3000`。默认范围是 `canvas:read canvas:write`，不含会扣费的 `canvas:run`。`trackbox tools` 列出来的是画布工具，不是新的子命令；调用方式是 `trackbox call`。
+
 ## 随包 Skills
 
 | Skill | 展示名 | 用途 |
