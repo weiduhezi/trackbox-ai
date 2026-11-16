@@ -212,16 +212,15 @@ const readErrorMessage = async (response) => {
 };
 
 /**
- * Windows 的 cmd 会把未加引号 URL 里的 & 当成命令分隔符，
- * 浏览器就只剩 client_id，授权页报缺少 redirect_uri。
+ * 不用 cmd start。start 会再经一层 cmd 解析，引号挡不住 &，
+ * 浏览器只剩 client_id。rundll32 直接把整段 URL 交给系统打开。
  */
 export const browserOpenCommand = (url, platform = process.platform) => {
   if (platform === 'win32') {
-    const quoted = `"${String(url).replace(/"/g, '""')}"`;
     return {
-      file: 'cmd',
-      args: ['/s', '/c', `start "" ${quoted}`],
-      options: { windowsVerbatimArguments: true },
+      file: 'rundll32',
+      args: ['url.dll,FileProtocolHandler', url],
+      options: {},
     };
   }
   if (platform === 'darwin') {
