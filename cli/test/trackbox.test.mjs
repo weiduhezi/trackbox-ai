@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import {
+  browserOpenCommand,
   buildAuthorizeUrl,
   createPkcePair,
   formatAccount,
@@ -50,6 +51,15 @@ test('PKCE S256 challenge 由 verifier 算出', () => {
   const expected = createHash('sha256').update(verifier).digest('base64url');
   assert.equal(challenge, expected);
   assert.ok(verifier.length >= 43);
+});
+
+test('Windows 打开授权页时整段 URL 加引号，& 不会被 cmd 截断', () => {
+  const url = 'http://localhost:3000/authorize?client_id=tbx_client_demo&redirect_uri=http%3A%2F%2F127.0.0.1%3A34902%2Foauth%2Fcallback&response_type=code';
+  const command = browserOpenCommand(url, 'win32');
+  assert.equal(command.file, 'cmd');
+  assert.equal(command.options.windowsVerbatimArguments, true);
+  assert.equal(command.args[2], `start "" "${url}"`);
+  assert.equal(command.args[2].includes('&redirect_uri='), true);
 });
 
 test('授权地址带上 PKCE 和回跳', () => {

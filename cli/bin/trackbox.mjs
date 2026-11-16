@@ -211,16 +211,28 @@ const readErrorMessage = async (response) => {
   return text.trim();
 };
 
+/**
+ * Windows 的 cmd 会把未加引号 URL 里的 & 当成命令分隔符，
+ * 浏览器就只剩 client_id，授权页报缺少 redirect_uri。
+ */
+export const browserOpenCommand = (url, platform = process.platform) => {
+  if (platform === 'win32') {
+    const quoted = `"${String(url).replace(/"/g, '""')}"`;
+    return {
+      file: 'cmd',
+      args: ['/s', '/c', `start "" ${quoted}`],
+      options: { windowsVerbatimArguments: true },
+    };
+  }
+  if (platform === 'darwin') {
+    return { file: 'open', args: [url], options: {} };
+  }
+  return { file: 'xdg-open', args: [url], options: {} };
+};
+
 const openBrowser = (url) => {
-  if (process.platform === 'win32') {
-    execFile('cmd', ['/c', 'start', '', url]);
-    return;
-  }
-  if (process.platform === 'darwin') {
-    execFile('open', [url]);
-    return;
-  }
-  execFile('xdg-open', [url]);
+  const command = browserOpenCommand(url);
+  execFile(command.file, command.args, command.options);
 };
 
 const postJson = async (url, body, headers = {}) => {
