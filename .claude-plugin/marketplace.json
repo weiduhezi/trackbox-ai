@@ -1,0 +1,16 @@
+{
+  "name": "trackbox",
+  "description": "TrackBox 画布技能与 MCP",
+  "owner": {
+    "name": "TrackBox",
+    "url": "https://github.com/weiduhezi/trackbox-ai"
+  },
+  "plugins": [
+    {
+      "name": "trackbox",
+      "source": "./",
+      "description": "TrackBox 画布技能。安装后用本机 trackbox login 授权，再通过 trackbox mcp 调用画布工具。",
+      "version": "1.0.0"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "trackbox",
+  "displayName": "TrackBox",
+  "version": "1.0.0",
+  "description": "TrackBox 画布技能与 MCP。先执行 trackbox login，再由本机 trackbox mcp 调用画布工具。",
+  "author": {
+    "name": "TrackBox",
+    "url": "https://github.com/weiduhezi/trackbox-ai"
+  },
+  "homepage": "https://github.com/weiduhezi/trackbox-ai",
+  "repository": "https://github.com/weiduhezi/trackbox-ai",
+  "license": "MIT",
+  "keywords": ["trackbox", "canvas", "mcp"]
+}

@@ -2,11 +2,11 @@
 
 TrackBox 的命令行工具（[`cli`](cli)）与智能体技能目录（[`skills`](skills)），提供统一的生产接入标识：`trackbox`。
 
-| 安装标识 | 展示名 | 连接地址 | 版本 |
+| 安装标识 | 展示名 | 连接方式 | 版本 |
 | --- | --- | --- | --- |
-| `trackbox` | TrackBox | `http://mcp.trackbox.top/mcp` | `1.0.0` |
+| `trackbox` | TrackBox | 本机 `trackbox mcp`（跟随 `trackbox login` 保存的产品站） | `1.0.0` |
 
-接入方式是原生 HTTP Remote MCP（OAuth 2.1 + PKCE）：不预置 client ID、回调地址或凭据，客户端按服务端 OAuth 元数据完成注册与登录。
+接入走已登录的 TrackBox CLI，不在插件里预置 client ID、回调地址或凭证。开发环境默认产品站是 `http://localhost:3000`。线上地址配好后，用 `trackbox login --url <产品站>` 切换。
 
 ## 安装
 
@@ -26,13 +26,28 @@ macOS / Linux：
 curl -fsSL https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/install.sh | sh
 ```
 
-装完在终端执行 `trackbox login` 完成 TrackBox OAuth 浏览器授权即可使用。每位使用者用自己的 TrackBox 身份完成授权。
+装完在终端执行 `trackbox login` 完成 TrackBox OAuth 浏览器授权即可使用。每位使用者用自己的 TrackBox 身份完成授权。默认范围是 `canvas:read canvas:write`，不包含会扣费的 `canvas:run`。需要生成时：
+
+```bash
+trackbox login --scope "canvas:read canvas:write canvas:run"
+```
 
 ### 2. 安装随包 Skills（[`skills/`](skills)）
 
 ```bash
 npx skills add weiduhezi/trackbox-ai
 ```
+
+### 3. Claude Code 插件
+
+仓库根目录的 `.claude-plugin/marketplace.json` 把市场定义为 `trackbox`，插件名也是 `trackbox`。在 Claude Code 会话里执行：
+
+```text
+/plugin marketplace add weiduhezi/trackbox-ai
+/plugin install trackbox@trackbox
+```
+
+插件通过本机 `trackbox mcp` 连接，所以要先完成 CLI 安装和 `trackbox login`。
 
 ## 随包 Skills
 
@@ -46,7 +61,7 @@ npx skills add weiduhezi/trackbox-ai
 | `trackbox-nano-banana-prompting` | Nano Banana 图像提示词 | 角色一致性、商品棚拍与多参考图合成的结构化生图提示词 |
 | `trackbox-gpt-image-prompting` | GPT Image 视觉与排版提示词 | 海报文字排版、UI 概念图、风格化插画与局部编辑提示词 |
 
-画布读写与生成依赖 TrackBox Remote MCP，需先完成授权；纯撰写提示词不会触发画布扣费。
+画布读写依赖已登录的 `trackbox mcp`。生成还要求登录范围包含 `canvas:run`。纯撰写提示词不会触发画布扣费。
 
 ## 更新
 

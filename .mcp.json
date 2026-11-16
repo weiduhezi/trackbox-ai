@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "trackbox": {
+      "command": "trackbox",
+      "args": ["mcp"]
+    }
+  }
+}
