@@ -21,6 +21,7 @@ import {
   resolveCliArgv,
   shouldRefresh,
   uploadLocalCanvasFile,
+  uploadLocalCanvasFiles,
   writeCredentials,
 } from '../bin/trackbox.mjs';
 
@@ -331,4 +332,148 @@ test('trackbox-creative-cli SKILL 覆盖建项目、参考图上传落板与 ref
   assert.match(skillText, /reference_nodes/);
   assert.equal(skillText.includes('音频节点会失败'), false);
   assert.equal(skillText.includes('告诉用户先在 TrackBox 创建一个画布项目'), false);
+  assert.match(skillText, /node_keys/);
+  assert.match(skillText, /video_generation_type/);
+});
+
+test('uploadLocalCanvasFiles 支持多张参考图与视频混合一次批量预签名、并发 PUT 与单次原子落板', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trackbox-batch-upload-'));
+  const img1 = join(dir, 'role1.png');
+  const img2 = join(dir, 'scene2.jpg');
+  const vid1 = join(dir, 'motion.mp4');
+  const { writeFileSync: writeTmp } = await import('node:fs');
+  writeTmp(img1, Buffer.from([1, 2, 3, 4]));
+  writeTmp(img2, Buffer.from([5, 6, 7, 8, 9]));
+  writeTmp(vid1, Buffer.from([10, 11, 12, 13, 14, 15]));
+
+  const toolCalls = [];
+  const putUrls = [];
+
+  try {
+    const parsed = parseArgs([
+      'node',
+      'trackbox',
+      'upload',
+      img1,
+      img2,
+      vid1,
+      '--project',
+      'proj_mix',
+      '--json',
+    ]);
+    assert.deepEqual(parsed.options.positionals, [img1, img2, vid1]);
+
+    const result = await uploadLocalCanvasFiles({
+      filePaths: parsed.options.positionals,
+      projectId: 'proj_mix',
+      boardId: 'board_mix',
+      title: '参考组',
+      callTool: async (name, args) => {
+        toolCalls.push({ name, args });
+        if (name === 'prepare_canvas_upload') {
+          return {
+            ok: true,
+            project_id: 'proj_mix',
+            board_id: 'board_mix',
+            count: 3,
+            items: [
+              {
+                index: 0,
+                file_name: 'role1.png',
+                mime_type: 'image/png',
+                file_size: 4,
+                upload_url: 'https://storage.example.com/put/role1.png',
+                object_name: 't/proj_mix/role1.png',
+                mode: 'direct',
+                headers: { 'Content-Type': 'image/png' },
+              },
+              {
+                index: 1,
+                file_name: 'scene2.jpg',
+                mime_type: 'image/jpeg',
+                file_size: 5,
+                upload_url: 'https://storage.example.com/put/scene2.jpg',
+                object_name: 't/proj_mix/scene2.jpg',
+                mode: 'direct',
+                headers: { 'Content-Type': 'image/jpeg' },
+              },
+              {
+                index: 2,
+                file_name: 'motion.mp4',
+                mime_type: 'video/mp4',
+                file_size: 6,
+                upload_url: 'https://storage.example.com/put/motion.mp4',
+                object_name: 't/proj_mix/motion.mp4',
+                mode: 'direct',
+                headers: { 'Content-Type': 'video/mp4' },
+              },
+            ],
+          };
+        }
+        if (name === 'create_upload_node') {
+          return {
+            ok: true,
+            applied: true,
+            project_id: 'proj_mix',
+            board_id: 'board_mix',
+            count: 3,
+            node_key: 'upload-att_1',
+            node_keys: ['upload-att_1', 'upload-att_2', 'upload-att_3'],
+          };
+        }
+        throw new Error(`unexpected tool: ${name}`);
+      },
+      fetchImpl: async (url) => {
+        putUrls.push(url);
+        return { ok: true, status: 200, text: async () => '' };
+      },
+    });
+
+    assert.deepEqual(result.node_keys, ['upload-att_1', 'upload-att_2', 'upload-att_3']);
+    assert.equal(toolCalls.length, 2);
+    assert.equal(toolCalls[0].name, 'prepare_canvas_upload');
+    assert.deepEqual(toolCalls[0].args, {
+      project_id: 'proj_mix',
+      board_id: 'board_mix',
+      files: [
+        { file_name: 'role1.png', mime_type: 'image/png', file_size: 4 },
+        { file_name: 'scene2.jpg', mime_type: 'image/jpeg', file_size: 5 },
+        { file_name: 'motion.mp4', mime_type: 'video/mp4', file_size: 6 },
+      ],
+    });
+    assert.equal(putUrls.length, 3);
+    assert.equal(toolCalls[1].name, 'create_upload_node');
+    assert.deepEqual(toolCalls[1].args, {
+      project_id: 'proj_mix',
+      board_id: 'board_mix',
+      files: [
+        {
+          title: '参考组 1',
+          object_name: 't/proj_mix/role1.png',
+          file_name: 'role1.png',
+          mime_type: 'image/png',
+          file_size: 4,
+          mode: 'direct',
+        },
+        {
+          title: '参考组 2',
+          object_name: 't/proj_mix/scene2.jpg',
+          file_name: 'scene2.jpg',
+          mime_type: 'image/jpeg',
+          file_size: 5,
+          mode: 'direct',
+        },
+        {
+          title: '参考组 3',
+          object_name: 't/proj_mix/motion.mp4',
+          file_name: 'motion.mp4',
+          mime_type: 'video/mp4',
+          file_size: 6,
+          mode: 'direct',
+        },
+      ],
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

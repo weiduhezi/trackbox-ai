@@ -337,7 +337,7 @@ const usage = () => `TrackBox CLI ${VERSION}
   trackbox account                                  确认已连接，并列出可见画布项目
   trackbox tools                                    列出当前账号可调用的 TrackBox 工具
   trackbox call <tool> [json_args]                  调用指定工具（默认参数 {}）
-  trackbox upload <file> --project <id> [options]   直传本地参考图/视频/音频并落入画布上传节点
+  trackbox upload <file...> --project <id> [opts]   直传单个或多个参考图/视频/音频并落入画布上传节点
   trackbox mcp                                      以标准 MCP stdio 模式运行
   trackbox logout                                   吊销令牌并删除本地凭证
   trackbox doctor                                   检查产品站 OAuth 端点是否可达
@@ -348,6 +348,7 @@ const usage = () => `TrackBox CLI ${VERSION}
   trackbox account --json
   trackbox tools --json
   trackbox upload ./product.png --project <project_id> --title "产品主图" --json
+  trackbox upload ./role1.png ./role2.jpg ./motion.mp4 --project <project_id> --json
   trackbox call list_canvas_projects '{"limit":5}'
 `;
 
@@ -689,23 +690,27 @@ const invokeMcpToolStructured = async (file, toolName, args, id = 1) => {
   return typeof text === 'string' && text.trim() ? JSON.parse(text) : rpc.result;
 };
 
-/**
- * 本地参考素材一键直传并创建画布 upload 节点：
- * 1. 读取本地二进制与大小，避免 PowerShell / 终端手动拼二进制损坏文件
- * 2. prepare_canvas_upload 获取预签名 PUT URL（若未传 projectId 则原样返回选项目提示）
- * 3. HTTP PUT 原样上传二进制
- * 4. create_upload_node 落入目标子画板并返回 node_key
- */
-export const uploadLocalCanvasFile = async ({
-  filePath,
-  projectId = '',
-  boardId = '',
-  title = '',
-  explicitMime = '',
-  callTool,
-  fetchImpl = fetch,
-}) => {
-  const trimmedPath = String(filePath || '').trim();
+const MAX_CLI_BATCH_UPLOAD_FILES = 20;
+const UPLOAD_PUT_CONCURRENCY = 4;
+
+const mapUploadConcurrency = async (items, concurrency, worker) => {
+  const results = new Array(items.length);
+  let nextIdx = 0;
+  const runWorker = async () => {
+    while (true) {
+      const idx = nextIdx;
+      nextIdx += 1;
+      if (idx >= items.length) return;
+      results[idx] = await worker(items[idx], idx);
+    }
+  };
+  const size = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: size }, () => runWorker()));
+  return results;
+};
+
+const readAndValidateLocalMedia = (rawPath, explicitMime = '') => {
+  const trimmedPath = String(rawPath || '').trim();
   if (!trimmedPath) {
     throw new Error('请提供本地文件路径，例如: trackbox upload ./product.jpg --project <project_id>');
   }
@@ -726,24 +731,15 @@ export const uploadLocalCanvasFile = async ({
   const fileName = basename(trimmedPath);
   const mimeType = inferUploadMimeType(trimmedPath, explicitMime);
   const fileBuffer = readFileSync(trimmedPath);
+  return { filePath: trimmedPath, fileName, mimeType, fileBuffer };
+};
 
-  const prepareArgs = {
-    ...(projectId.trim() ? { project_id: projectId.trim() } : {}),
-    ...(boardId.trim() ? { board_id: boardId.trim() } : {}),
-    file_name: fileName,
-    mime_type: mimeType,
-    file_size: fileBuffer.byteLength,
-  };
-  const prepared = await callTool('prepare_canvas_upload', prepareArgs);
-  if (prepared?.needs_project || !prepared?.upload_url) {
-    return prepared;
-  }
-
+const putSingleBufferToPresignedUrl = async (preparedItem, fallbackMime, fileBuffer, fetchImpl) => {
   const putHeaders =
-    prepared.headers && typeof prepared.headers === 'object'
-      ? prepared.headers
-      : { 'Content-Type': prepared.mime_type || mimeType };
-  const putRes = await fetchImpl(prepared.upload_url, {
+    preparedItem.headers && typeof preparedItem.headers === 'object'
+      ? preparedItem.headers
+      : { 'Content-Type': preparedItem.mime_type || fallbackMime };
+  const putRes = await fetchImpl(preparedItem.upload_url, {
     method: 'PUT',
     headers: putHeaders,
     body: fileBuffer,
@@ -754,6 +750,40 @@ export const uploadLocalCanvasFile = async ({
       `直传文件到存储失败（HTTP ${putRes.status}）${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
     );
   }
+};
+
+/**
+ * 本地单个参考素材一键直传并创建画布 upload 节点
+ */
+export const uploadLocalCanvasFile = async ({
+  filePath,
+  projectId = '',
+  boardId = '',
+  title = '',
+  explicitMime = '',
+  callTool,
+  fetchImpl = fetch,
+}) => {
+  const localFile = readAndValidateLocalMedia(filePath, explicitMime);
+
+  const prepareArgs = {
+    ...(projectId.trim() ? { project_id: projectId.trim() } : {}),
+    ...(boardId.trim() ? { board_id: boardId.trim() } : {}),
+    file_name: localFile.fileName,
+    mime_type: localFile.mimeType,
+    file_size: localFile.fileBuffer.byteLength,
+  };
+  const prepared = await callTool('prepare_canvas_upload', prepareArgs);
+  if (prepared?.needs_project || !prepared?.upload_url) {
+    return prepared;
+  }
+
+  await putSingleBufferToPresignedUrl(
+    prepared,
+    localFile.mimeType,
+    localFile.fileBuffer,
+    fetchImpl,
+  );
 
   return callTool('create_upload_node', {
     project_id: prepared.project_id || projectId.trim(),
@@ -762,16 +792,112 @@ export const uploadLocalCanvasFile = async ({
       : {}),
     ...(title.trim() ? { title: title.trim() } : {}),
     object_name: prepared.object_name,
-    file_name: prepared.file_name || fileName,
-    mime_type: prepared.mime_type || mimeType,
-    file_size: prepared.file_size || fileBuffer.byteLength,
+    file_name: prepared.file_name || localFile.fileName,
+    mime_type: prepared.mime_type || localFile.mimeType,
+    file_size: prepared.file_size || localFile.fileBuffer.byteLength,
     mode: prepared.mode || 'direct',
   });
 };
 
-const uploadCommand = async ({ file, filePath, projectId, boardId, title, explicitMime, json }) => {
-  const result = await uploadLocalCanvasFile({
-    filePath,
+/**
+ * 本地单个或多个参考素材（多张图片、图+视频+音频混合）批量直传并一次性落入画布独立 upload 节点：
+ * - 单文件自动走单文件契约保持完全向后兼容
+ * - 多文件走 prepare_canvas_upload({ files }) -> 并发 PUT -> create_upload_node({ files })，单次原子返回 node_keys
+ */
+export const uploadLocalCanvasFiles = async ({
+  filePaths,
+  projectId = '',
+  boardId = '',
+  title = '',
+  explicitMime = '',
+  callTool,
+  fetchImpl = fetch,
+}) => {
+  const normalizedPaths = Array.isArray(filePaths)
+    ? filePaths.map((p) => String(p || '').trim()).filter(Boolean)
+    : [];
+  if (normalizedPaths.length === 0) {
+    throw new Error(
+      '请提供至少一个本地文件路径，例如: trackbox upload ./role.png ./motion.mp4 --project <project_id>',
+    );
+  }
+  if (normalizedPaths.length > MAX_CLI_BATCH_UPLOAD_FILES) {
+    throw new Error(`单次最多同时上传 ${MAX_CLI_BATCH_UPLOAD_FILES} 个参考文件`);
+  }
+
+  if (normalizedPaths.length === 1) {
+    return uploadLocalCanvasFile({
+      filePath: normalizedPaths[0],
+      projectId,
+      boardId,
+      title,
+      explicitMime,
+      callTool,
+      fetchImpl,
+    });
+  }
+
+  // 多文件时若未对单个文件指定后缀则由各自扩展名推断，避免把同一个 --mime 强套给图+视频混传
+  const localFiles = normalizedPaths.map((fp) => readAndValidateLocalMedia(fp, explicitMime));
+
+  const prepared = await callTool('prepare_canvas_upload', {
+    ...(projectId.trim() ? { project_id: projectId.trim() } : {}),
+    ...(boardId.trim() ? { board_id: boardId.trim() } : {}),
+    files: localFiles.map((item) => ({
+      file_name: item.fileName,
+      mime_type: item.mimeType,
+      file_size: item.fileBuffer.byteLength,
+    })),
+  });
+  if (prepared?.needs_project || !Array.isArray(prepared?.items)) {
+    return prepared;
+  }
+  if (prepared.items.length !== localFiles.length) {
+    throw new Error(
+      `预签名返回文件数量（${prepared.items.length}）与请求数量（${localFiles.length}）不一致`,
+    );
+  }
+
+  await mapUploadConcurrency(
+    localFiles,
+    UPLOAD_PUT_CONCURRENCY,
+    async (localFile, index) => {
+      const preparedItem = prepared.items[index];
+      if (!preparedItem?.upload_url) {
+        throw new Error(`第 ${index + 1} 个文件未返回 upload_url`);
+      }
+      await putSingleBufferToPresignedUrl(
+        preparedItem,
+        localFile.mimeType,
+        localFile.fileBuffer,
+        fetchImpl,
+      );
+    },
+  );
+
+  const trimmedTitle = title.trim();
+  return callTool('create_upload_node', {
+    project_id: prepared.project_id || projectId.trim(),
+    ...(prepared.board_id || boardId.trim()
+      ? { board_id: prepared.board_id || boardId.trim() }
+      : {}),
+    files: localFiles.map((localFile, index) => {
+      const preparedItem = prepared.items[index];
+      return {
+        ...(trimmedTitle ? { title: `${trimmedTitle} ${index + 1}` } : {}),
+        object_name: preparedItem.object_name,
+        file_name: preparedItem.file_name || localFile.fileName,
+        mime_type: preparedItem.mime_type || localFile.mimeType,
+        file_size: preparedItem.file_size || localFile.fileBuffer.byteLength,
+        mode: preparedItem.mode || 'direct',
+      };
+    }),
+  });
+};
+
+const uploadCommand = async ({ file, filePaths, projectId, boardId, title, explicitMime, json }) => {
+  const result = await uploadLocalCanvasFiles({
+    filePaths,
     projectId,
     boardId,
     title,
@@ -913,7 +1039,7 @@ export const run = async (argv, env = {}) => {
   if (command === 'upload') {
     await uploadCommand({
       file,
-      filePath: options.positionals[0],
+      filePaths: options.positionals,
       projectId: options.project,
       boardId: options.board,
       title: options.title,

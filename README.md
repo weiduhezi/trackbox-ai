@@ -59,7 +59,7 @@ npx skills add weiduhezi/trackbox-ai
 | `trackbox account` | 确认已连接，并列出可见的画布项目 |
 | `trackbox tools` | 列出当前账号能调用的画布工具 |
 | `trackbox call <工具名> [json]` | 调用某一个工具 |
-| `trackbox upload <本地文件> --project <项目ID>` | 直传本地参考图/视频/音频并落入画布 `upload` 节点，返回 `node_key` 供 `reference_nodes` 连线 |
+| `trackbox upload <本地文件...> --project <项目ID>` | 直传单个或多个参考图/视频/音频（支持多图及图+视频混合）并原子落入画布独立 `upload` 节点，返回 `node_keys` 供 `reference_nodes` 连线 |
 | `trackbox mcp` | 以标准 MCP 的 stdio 模式运行，给 Cursor、Claude 接 |
 | `trackbox logout` | 吊销令牌并删除本机凭证 |
 | `trackbox doctor` | 检查产品站的授权、换票、注册地址是否可达 |
@@ -74,6 +74,7 @@ trackbox login --scope "canvas:read canvas:write"
 trackbox account --json
 trackbox tools --json
 trackbox upload ./product.png --project <project_id> --title "产品主图" --json
+trackbox upload ./role1.png ./scene2.jpg ./motion.mp4 --project <project_id> --json
 trackbox call list_canvas_projects "{\"limit\":5}"
 ```
 
