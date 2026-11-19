@@ -54,7 +54,7 @@ case ":${PATH}:" in
 esac
 
 printf '\nNext:\n'
-printf '  trackbox login\n'
-printf '  trackbox login --scope "canvas:read canvas:write canvas:run"  # enable generation\n'
+printf '  trackbox login  # default scope: canvas:read canvas:write canvas:run\n'
+printf '  trackbox login --scope "canvas:read canvas:write"  # read/write only\n'
 printf '\nDesktop MCP config (absolute paths for Cursor / Claude Desktop):\n'
 printf '{\n  "mcpServers": {\n    "trackbox": {\n      "command": "%s",\n      "args": ["%s/trackbox.mjs", "mcp"]\n    }\n  }\n}\n' "$NODE_BIN" "$LIB_DIR"

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
+  DEFAULT_SCOPE,
   browserOpenCommand,
   buildAuthorizeUrl,
   createPkcePair,
@@ -13,11 +14,13 @@ import {
   formatAccount,
   formatCliError,
   formatTools,
+  inferUploadMimeType,
   parseArgs,
   readCredentials,
   readProjects,
   resolveCliArgv,
   shouldRefresh,
+  uploadLocalCanvasFile,
   writeCredentials,
 } from '../bin/trackbox.mjs';
 
@@ -198,4 +201,134 @@ test('Claude Code 与 Cursor 插件清单结构合法且字段严格对齐', () 
   assert.equal(cursorPlugin.skills, './skills/');
   assert.equal(cursorPlugin.mcpServers, './.mcp.json');
   assert.deepEqual(mcpJson.mcpServers.trackbox, { command: 'trackbox', args: ['mcp'] });
+});
+
+test('DEFAULT_SCOPE 默认包含 canvas:run，开箱即可发起两段确认生成', () => {
+  assert.equal(DEFAULT_SCOPE, 'canvas:read canvas:write canvas:run');
+});
+
+test('parseArgs 支持 upload 命令的 --project / --board / --title 参数', () => {
+  const parsed = parseArgs([
+    'node',
+    'trackbox',
+    'upload',
+    './hero-product.png',
+    '--project',
+    'proj_demo',
+    '--board=board_main',
+    '--title',
+    '产品主图参考',
+    '--json',
+  ]);
+  assert.equal(parsed.command, 'upload');
+  assert.deepEqual(parsed.options.positionals, ['./hero-product.png']);
+  assert.equal(parsed.options.project, 'proj_demo');
+  assert.equal(parsed.options.board, 'board_main');
+  assert.equal(parsed.options.title, '产品主图参考');
+  assert.equal(parsed.options.json, true);
+});
+
+test('inferUploadMimeType 按文件扩展名推断常见画布媒体类型并拦截不支持后缀', () => {
+  assert.equal(inferUploadMimeType('C:\\tmp\\bottle.JPG'), 'image/jpeg');
+  assert.equal(inferUploadMimeType('/tmp/pack.png'), 'image/png');
+  assert.equal(inferUploadMimeType('/tmp/demo.mp4'), 'video/mp4');
+  assert.equal(inferUploadMimeType('/tmp/bgm.mp3'), 'audio/mpeg');
+  assert.throws(() => inferUploadMimeType('/tmp/archive.zip'), /仅支持图片、视频或音频/);
+});
+
+test('uploadLocalCanvasFile 串联 prepare_canvas_upload -> PUT 二进制 -> create_upload_node 返回 node_key', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trackbox-upload-'));
+  const imgFile = join(dir, 'product.png');
+  const rawBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const { writeFileSync: writeTmp } = await import('node:fs');
+  writeTmp(imgFile, rawBytes);
+
+  const toolCalls = [];
+  let putRequest = null;
+
+  try {
+    const result = await uploadLocalCanvasFile({
+      filePath: imgFile,
+      projectId: 'proj_a',
+      boardId: 'board_default',
+      title: '产品参考图',
+      callTool: async (name, args) => {
+        toolCalls.push({ name, args });
+        if (name === 'prepare_canvas_upload') {
+          return {
+            ok: true,
+            project_id: 'proj_a',
+            board_id: 'board_default',
+            file_name: 'product.png',
+            mime_type: 'image/png',
+            file_size: rawBytes.length,
+            upload_url: 'https://storage.example.com/presigned-put',
+            object_name: 'tenant_a/proj_a/product.png',
+            mode: 'direct',
+            headers: { 'Content-Type': 'image/png' },
+          };
+        }
+        if (name === 'create_upload_node') {
+          return {
+            ok: true,
+            applied: true,
+            project_id: 'proj_a',
+            board_id: 'board_default',
+            node_key: 'upload-att_product_1',
+            type: 'image',
+            title: '产品参考图',
+            artifact_url: '/api/images/ai-chat-files/tenant_a/proj_a/product.png',
+          };
+        }
+        throw new Error(`unexpected tool: ${name}`);
+      },
+      fetchImpl: async (url, init) => {
+        putRequest = { url, init };
+        return { ok: true, status: 200, text: async () => '' };
+      },
+    });
+
+    assert.equal(result.node_key, 'upload-att_product_1');
+    assert.equal(toolCalls.length, 2);
+    assert.equal(toolCalls[0].name, 'prepare_canvas_upload');
+    assert.deepEqual(toolCalls[0].args, {
+      project_id: 'proj_a',
+      board_id: 'board_default',
+      file_name: 'product.png',
+      mime_type: 'image/png',
+      file_size: rawBytes.length,
+    });
+    assert.equal(putRequest.url, 'https://storage.example.com/presigned-put');
+    assert.equal(putRequest.init.method, 'PUT');
+    assert.deepEqual(putRequest.init.headers, { 'Content-Type': 'image/png' });
+    assert.equal(Buffer.compare(Buffer.from(putRequest.init.body), rawBytes), 0);
+    assert.equal(toolCalls[1].name, 'create_upload_node');
+    assert.deepEqual(toolCalls[1].args, {
+      project_id: 'proj_a',
+      board_id: 'board_default',
+      title: '产品参考图',
+      object_name: 'tenant_a/proj_a/product.png',
+      file_name: 'product.png',
+      mime_type: 'image/png',
+      file_size: rawBytes.length,
+      mode: 'direct',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('trackbox-creative-cli SKILL 覆盖建项目、参考图上传落板与 reference_nodes 连线规程', () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const skillText = readFileSync(
+    join(repoRoot, 'skills', 'trackbox-creative-cli', 'SKILL.md'),
+    'utf8',
+  );
+  assert.match(skillText, /create_ai_project/);
+  assert.match(skillText, /prepare_canvas_upload/);
+  assert.match(skillText, /create_upload_node/);
+  assert.match(skillText, /trackbox upload/);
+  assert.match(skillText, /reference_nodes/);
+  assert.equal(skillText.includes('音频节点会失败'), false);
+  assert.equal(skillText.includes('告诉用户先在 TrackBox 创建一个画布项目'), false);
 });
