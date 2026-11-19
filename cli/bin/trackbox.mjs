@@ -15,7 +15,7 @@ import * as readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 export const VERSION = '1.0.0';
-export const DEFAULT_ORIGIN = 'http://localhost:3000';
+export const DEFAULT_ORIGIN = 'https://mcp.trackbox.top';
 export const DEFAULT_SCOPE = 'canvas:read canvas:write';
 const REFRESH_BUFFER_MS = 60_000;
 const LOGIN_TIMEOUT_MS = 3 * 60_000;
@@ -188,7 +188,7 @@ const usage = () => `TrackBox CLI ${VERSION}
   trackbox doctor                     检查产品站 OAuth 端点是否可达
   trackbox version
 
-  trackbox login --url http://localhost:3000
+  trackbox login --url https://mcp.trackbox.top
   trackbox login --scope "canvas:read canvas:write"
   trackbox account --json
   trackbox tools --json
