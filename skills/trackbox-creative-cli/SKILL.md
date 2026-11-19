@@ -9,6 +9,14 @@ description: 底层系统与集成协作。创意助手的画布 JSON 工具规�
 
 创建和更新不生成、不扣费，并直接写入画布，不要出确认卡。生成要两步：`run_node` 只预估，`confirm_canvas_run` 才扣费入队。这两步只在登录范围包含 `canvas:run` 时出现。默认 `trackbox login` 只有 `canvas:read canvas:write`，看不到它们。需要生成时先执行 `trackbox login --scope "canvas:read canvas:write canvas:run"`。用户明确同意之前不要调用 `confirm_canvas_run`，也不要声称已经生成。
 
+## 生成图片前先选定项目
+
+MCP CLI 没有当前打开的画布。`create_image_node` 和 `run_node` 之前先调用 `list_canvas_projects`。
+
+- 没有项目：停下来，告诉用户先在 TrackBox 创建一个画布项目。不要编造 `project_id`，也不要继续创建或运行节点。
+- 有项目：把项目名称列给用户，等用户明确选定一个。不要自行挑选，即使用户只有一个项目。
+- 用户选定后，`create_image_node` 和 `run_node` 都带上这个 `project_id`。没带时工具不会生成，只会返回选择项目或创建项目的提示。
+
 ## 查找与读取
 
 - `search_canvas_nodes`：按 `type`（image / video / audio / text）、`name`、`tag`、`status` 筛选。`tag` 匹配标题或所在分组名。
