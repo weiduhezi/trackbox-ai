@@ -1,0 +1,16 @@
+{
+  "name": "trackbox",
+  "displayName": "TrackBox",
+  "version": "1.0.0",
+  "description": "TrackBox 画布技能与 MCP。支持远程 Streamable HTTP 或本机 trackbox mcp 调用画布工具。",
+  "author": {
+    "name": "TrackBox",
+    "url": "https://github.com/weiduhezi/trackbox-ai"
+  },
+  "homepage": "https://github.com/weiduhezi/trackbox-ai",
+  "repository": "https://github.com/weiduhezi/trackbox-ai",
+  "license": "MIT",
+  "keywords": ["trackbox", "canvas", "mcp", "creative"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

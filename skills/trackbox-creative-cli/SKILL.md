@@ -19,6 +19,7 @@ MCP CLI 没有当前打开的画布。`create_image_node` 和 `run_node` 之前�
 
 ## 查找与读取
 
+- `list_models`：按可选 `modality`（image / video / audio）和 `project_id` 列出当前可用生成模型及各类型默认模型 ID。需要指定 `model` 时先调用它，不要猜测模型名；省略 `model` 创建节点时服务端自动填入对应类型默认模型。
 - `search_canvas_nodes`：按 `type`（image / video / audio / text）、`name`、`tag`、`status` 筛选。`tag` 匹配标题或所在分组名。
 - `get_node_details`：入参 `node_key`。返回提示词、模型、比例、引用和产物。不在当前板就失败。
 - `list_canvas_boards`：列出当前项目全部子画板。返回 `board_id`、名称，以及哪一块是用户正在看的。
