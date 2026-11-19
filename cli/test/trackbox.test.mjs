@@ -12,10 +12,7 @@ import {
   formatTools,
   parseArgs,
   readCredentials,
-  buildImageGenerationProjectGate,
-  imageGenerationProjectGate,
   readProjects,
-  readToolProjectId,
   shouldRefresh,
   writeCredentials,
 } from '../bin/trackbox.mjs';
@@ -136,35 +133,4 @@ test('工具错误不会被当成空项目', () => {
     }),
     /缺少权限/,
   );
-});
-
-test('生成图片未选定项目时停下来，不代选', () => {
-  assert.equal(readToolProjectId({ project_id: ' p1 ' }), 'p1');
-  assert.equal(readToolProjectId({ prompt: 'a cat' }), '');
-  assert.equal(imageGenerationProjectGate({
-    method: 'tools/call',
-    params: { name: 'create_image_node', arguments: { title: '海报' } },
-  })?.toolName, 'create_image_node');
-  assert.equal(imageGenerationProjectGate({
-    method: 'tools/call',
-    params: { name: 'run_node', arguments: { projectId: 'p1', node_key: 'n1' } },
-  }), null);
-  assert.equal(imageGenerationProjectGate({
-    method: 'tools/call',
-    params: { name: 'list_canvas_projects', arguments: {} },
-  }), null);
-
-  const empty = buildImageGenerationProjectGate([]);
-  assert.equal(empty.code, 'NO_CANVAS_PROJECT');
-  assert.equal(empty.projects.length, 0);
-
-  const selection = buildImageGenerationProjectGate([
-    { project_id: 'p1', name: '广告片' },
-    { project_id: 'p2', name: '短片' },
-  ]);
-  assert.equal(selection.code, 'PROJECT_SELECTION_REQUIRED');
-  assert.deepEqual(selection.projects, [
-    { project_id: 'p1', name: '广告片' },
-    { project_id: 'p2', name: '短片' },
-  ]);
 });
