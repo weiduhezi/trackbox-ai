@@ -8,15 +8,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import * as readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 export const VERSION = '1.0.0';
 export const DEFAULT_ORIGIN = 'https://mcp.trackbox.top';
-export const DEFAULT_SCOPE = 'canvas:read canvas:write';
+export const DEFAULT_SCOPE = 'canvas:read canvas:write canvas:run';
 const REFRESH_BUFFER_MS = 60_000;
 const LOGIN_TIMEOUT_MS = 3 * 60_000;
 
@@ -46,7 +46,16 @@ export const resolveCliArgv = (argv = process.argv, procEnv = process.env) => {
 
 export const parseArgs = (argv) => {
   const args = argv.slice(2);
-  const options = { url: '', scope: '', json: false, positionals: [] };
+  const options = {
+    url: '',
+    scope: '',
+    project: '',
+    board: '',
+    title: '',
+    mime: '',
+    json: false,
+    positionals: [],
+  };
 
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     return { command: 'help', options };
@@ -85,6 +94,50 @@ export const parseArgs = (argv) => {
     }
     if (arg.startsWith('--scope=')) {
       options.scope = arg.slice('--scope='.length);
+      continue;
+    }
+    if (arg === '--project') {
+      const value = args[i + 1];
+      if (!value) throw new Error('--project 需要一个画布项目 ID');
+      options.project = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--project=')) {
+      options.project = arg.slice('--project='.length);
+      continue;
+    }
+    if (arg === '--board') {
+      const value = args[i + 1];
+      if (!value) throw new Error('--board 需要一个子画板 ID');
+      options.board = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--board=')) {
+      options.board = arg.slice('--board='.length);
+      continue;
+    }
+    if (arg === '--title') {
+      const value = args[i + 1];
+      if (!value) throw new Error('--title 需要一个节点标题');
+      options.title = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--title=')) {
+      options.title = arg.slice('--title='.length);
+      continue;
+    }
+    if (arg === '--mime') {
+      const value = args[i + 1];
+      if (!value) throw new Error('--mime 需要一个 MIME 类型');
+      options.mime = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--mime=')) {
+      options.mime = arg.slice('--mime='.length);
       continue;
     }
     if (arg === '--help' || arg === '-h') {
@@ -236,22 +289,65 @@ export const formatTools = (tools) => {
     .join('\n');
 };
 
+const UPLOAD_EXTENSION_MIME_MAP = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+};
+
+const SUPPORTED_UPLOAD_MIMES = new Set(Object.values(UPLOAD_EXTENSION_MIME_MAP));
+
+/** 按显式声明或文件扩展名推断画布上传允许的 MIME 类型 */
+export const inferUploadMimeType = (filePath, explicitMime = '') => {
+  const cleanedExplicit = String(explicitMime || '').split(';')[0].trim().toLowerCase();
+  const normalizedExplicit =
+    cleanedExplicit === 'image/jpg'
+      ? 'image/jpeg'
+      : cleanedExplicit === 'audio/mp3'
+        ? 'audio/mpeg'
+        : cleanedExplicit;
+  if (normalizedExplicit) {
+    if (!SUPPORTED_UPLOAD_MIMES.has(normalizedExplicit)) {
+      throw new Error(`画布上传仅支持图片、视频或音频格式（当前: ${normalizedExplicit}）`);
+    }
+    return normalizedExplicit;
+  }
+  const ext = extname(String(filePath || '')).toLowerCase();
+  const inferred = UPLOAD_EXTENSION_MIME_MAP[ext];
+  if (!inferred) {
+    throw new Error(
+      `画布上传仅支持图片、视频或音频文件（jpg/png/webp/gif/svg/mp4/webm/mov/mp3/wav/ogg）`,
+    );
+  }
+  return inferred;
+};
+
 const usage = () => `TrackBox CLI ${VERSION}
 
-  trackbox login                      浏览器授权并保存凭证
-  trackbox account                    确认已连接，并列出可见画布项目
-  trackbox tools                      列出当前账号可调用的 TrackBox 工具
-  trackbox call <tool> [json_args]    调用指定工具（默认参数 {}）
-  trackbox mcp                        以标准 MCP stdio 模式运行
-  trackbox logout                     吊销令牌并删除本地凭证
-  trackbox doctor                     检查产品站 OAuth 端点是否可达
+  trackbox login                                    浏览器授权并保存凭证（默认含读写与生成范围）
+  trackbox account                                  确认已连接，并列出可见画布项目
+  trackbox tools                                    列出当前账号可调用的 TrackBox 工具
+  trackbox call <tool> [json_args]                  调用指定工具（默认参数 {}）
+  trackbox upload <file> --project <id> [options]   直传本地参考图/视频/音频并落入画布上传节点
+  trackbox mcp                                      以标准 MCP stdio 模式运行
+  trackbox logout                                   吊销令牌并删除本地凭证
+  trackbox doctor                                   检查产品站 OAuth 端点是否可达
   trackbox version
 
   trackbox login --url https://mcp.trackbox.top
   trackbox login --scope "canvas:read canvas:write"
-  trackbox login --scope "canvas:read canvas:write canvas:run"
   trackbox account --json
   trackbox tools --json
+  trackbox upload ./product.png --project <project_id> --title "产品主图" --json
   trackbox call list_canvas_projects '{"limit":5}'
 `;
 
@@ -576,6 +672,118 @@ const callToolCommand = async ({ file, toolName, rawArgs, json }) => {
   process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(output, null, 2)}\n`);
 };
 
+const invokeMcpToolStructured = async (file, toolName, args, id = 1) => {
+  const { data: rpc } = await withAutoRefreshMcp(file, (current) =>
+    callMcp(current, 'tools/call', { name: toolName, arguments: args }, id),
+  );
+  if (rpc.error?.message) {
+    throw new Error(extractErrorText(rpc.error.message, rpc.error.message));
+  }
+  if (rpc.result?.isError) {
+    throw new Error(extractErrorText(rpc.result?.content?.[0]?.text, '工具执行失败'));
+  }
+  if (rpc.result?.structuredContent && typeof rpc.result.structuredContent === 'object') {
+    return rpc.result.structuredContent;
+  }
+  const text = rpc.result?.content?.[0]?.text;
+  return typeof text === 'string' && text.trim() ? JSON.parse(text) : rpc.result;
+};
+
+/**
+ * 本地参考素材一键直传并创建画布 upload 节点：
+ * 1. 读取本地二进制与大小，避免 PowerShell / 终端手动拼二进制损坏文件
+ * 2. prepare_canvas_upload 获取预签名 PUT URL（若未传 projectId 则原样返回选项目提示）
+ * 3. HTTP PUT 原样上传二进制
+ * 4. create_upload_node 落入目标子画板并返回 node_key
+ */
+export const uploadLocalCanvasFile = async ({
+  filePath,
+  projectId = '',
+  boardId = '',
+  title = '',
+  explicitMime = '',
+  callTool,
+  fetchImpl = fetch,
+}) => {
+  const trimmedPath = String(filePath || '').trim();
+  if (!trimmedPath) {
+    throw new Error('请提供本地文件路径，例如: trackbox upload ./product.jpg --project <project_id>');
+  }
+
+  let stat;
+  try {
+    stat = statSync(trimmedPath);
+  } catch {
+    throw new Error(`找不到本地文件: ${trimmedPath}`);
+  }
+  if (!stat.isFile()) {
+    throw new Error(`路径不是普通文件: ${trimmedPath}`);
+  }
+  if (stat.size <= 0) {
+    throw new Error(`本地文件为空: ${trimmedPath}`);
+  }
+
+  const fileName = basename(trimmedPath);
+  const mimeType = inferUploadMimeType(trimmedPath, explicitMime);
+  const fileBuffer = readFileSync(trimmedPath);
+
+  const prepareArgs = {
+    ...(projectId.trim() ? { project_id: projectId.trim() } : {}),
+    ...(boardId.trim() ? { board_id: boardId.trim() } : {}),
+    file_name: fileName,
+    mime_type: mimeType,
+    file_size: fileBuffer.byteLength,
+  };
+  const prepared = await callTool('prepare_canvas_upload', prepareArgs);
+  if (prepared?.needs_project || !prepared?.upload_url) {
+    return prepared;
+  }
+
+  const putHeaders =
+    prepared.headers && typeof prepared.headers === 'object'
+      ? prepared.headers
+      : { 'Content-Type': prepared.mime_type || mimeType };
+  const putRes = await fetchImpl(prepared.upload_url, {
+    method: 'PUT',
+    headers: putHeaders,
+    body: fileBuffer,
+  });
+  if (!putRes.ok) {
+    const errBody = typeof putRes.text === 'function' ? await putRes.text() : '';
+    throw new Error(
+      `直传文件到存储失败（HTTP ${putRes.status}）${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
+    );
+  }
+
+  return callTool('create_upload_node', {
+    project_id: prepared.project_id || projectId.trim(),
+    ...(prepared.board_id || boardId.trim()
+      ? { board_id: prepared.board_id || boardId.trim() }
+      : {}),
+    ...(title.trim() ? { title: title.trim() } : {}),
+    object_name: prepared.object_name,
+    file_name: prepared.file_name || fileName,
+    mime_type: prepared.mime_type || mimeType,
+    file_size: prepared.file_size || fileBuffer.byteLength,
+    mode: prepared.mode || 'direct',
+  });
+};
+
+const uploadCommand = async ({ file, filePath, projectId, boardId, title, explicitMime, json }) => {
+  const result = await uploadLocalCanvasFile({
+    filePath,
+    projectId,
+    boardId,
+    title,
+    explicitMime,
+    callTool: (toolName, args) => invokeMcpToolStructured(file, toolName, args),
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (!json && result?.needs_project && typeof result.message === 'string') {
+    process.stderr.write(`${result.message}\n`);
+  }
+};
+
 const runMcpStdio = async ({ file }) => {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -698,6 +906,18 @@ export const run = async (argv, env = {}) => {
       file,
       toolName: options.positionals[0],
       rawArgs: options.positionals[1],
+      json: options.json,
+    });
+    return;
+  }
+  if (command === 'upload') {
+    await uploadCommand({
+      file,
+      filePath: options.positionals[0],
+      projectId: options.project,
+      boardId: options.board,
+      title: options.title,
+      explicitMime: options.mime,
       json: options.json,
     });
     return;

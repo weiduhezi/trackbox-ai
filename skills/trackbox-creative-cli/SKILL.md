@@ -1,50 +1,60 @@
 ---
 name: trackbox-creative-cli
-description: 底层系统与集成协作。创意助手的画布 JSON 工具规程。查节点、建待运行节点、改参数、运行和入库时读取。只给创意 Agent。日常单次编辑和单张反推不要读。
+description: 底层系统与集成协作。创意助手的画布 JSON 工具规程。查节点、上传参考图落板、建待运行节点、改参数、运行和入库时读取。只给创意 Agent。日常单次编辑和单张反推不要读。
 ---
 
 # trackbox-creative-cli
 
-只给创意助手。参数是 JSON，按工具名调用。`node_key` 必须是当前画布上的节点 id，不能编造。
+参数是 JSON，按工具名调用。`node_key` 必须是当前画布上的真实节点 ID，不能编造。
 
-创建和更新不生成、不扣费，并直接写入画布，不要出确认卡。生成要两步：`run_node` 只预估，`confirm_canvas_run` 才扣费入队。这两步只在登录范围包含 `canvas:run` 时出现。默认 `trackbox login` 只有 `canvas:read canvas:write`，看不到它们。需要生成时先执行 `trackbox login --scope "canvas:read canvas:write canvas:run"`。用户明确同意之前不要调用 `confirm_canvas_run`，也不要声称已经生成。
+创建、上传参考素材和更新节点都不生成、不扣费，并直接写入画布。生成必须走两步：`run_node` 只返回估价与一次性确认令牌，`confirm_canvas_run` 在用户明确同意后才扣费入队。若当前凭证是旧版仅含 `canvas:read canvas:write` 签发的，看不到 `run_node` 和 `confirm_canvas_run`，请先重新执行 `trackbox login`（默认已包含 `canvas:read canvas:write canvas:run`）。在用户明确同意之前不要调用 `confirm_canvas_run`，队列尚未完成时也不要声称已经出片。
 
-## 生成图片前先选定项目
+## 第一步：先选定或创建画布项目
 
-MCP CLI 没有当前打开的画布。`create_image_node` 和 `run_node` 之前先调用 `list_canvas_projects`。
+外部 MCP / CLI 没有“当前正在打开的画布”。调用上传、建节点或运行工具前，必须先调用 `list_canvas_projects`：
 
-- 没有项目：停下来，告诉用户先在 TrackBox 创建一个画布项目。不要编造 `project_id`，也不要继续创建或运行节点。
-- 有项目：把项目名称列给用户，等用户明确选定一个。不要自行挑选，即使用户只有一个项目。
-- 用户选定后，`create_image_node` 和 `run_node` 都带上这个 `project_id`。没带时工具不会生成，只会返回选择项目或创建项目的提示。
+- **没有项目**：调用 `create_ai_project`（传入 `name`）新建一块画布项目并自动创建默认子画板。不要编造 `project_id`，也不要在别的项目下建子画板冒充新项目。
+- **已有项目**：把项目名称列表展示给用户，等用户明确选定后再使用对应的 `project_id`。不要自行代选项目，即使用户只有一个项目。
+- 选定 `project_id` 后，后续工具全部带上该 `project_id`（`board_id` 省略时服务端默认落到该项目的默认子画板）。
+
+## 第二步：参考图 / 参考视频先放到画布上，再连线生成新节点
+
+如果用户提供了产品实拍图、风格参考图、首帧图或参考视频，**不能**把外部路径或外链直接塞进生成节点参数，必须按以下两步先落画布、再连线：
+
+1. **先把参考素材落成画布 `upload` 节点，拿到 `node_key`**：
+   - **本机文件（推荐 CLI 一键上传）**：终端可用 `trackbox` 时，直接运行：
+     `trackbox upload <本地文件路径> --project <project_id> [--board <board_id>] [--title <标题>] --json`
+     该命令会自动完成预签名、二进制 PUT 直传与 `create_upload_node` 落板，返回 `node_key`（形如 `upload-...`）。
+   - **本机文件（纯 MCP 工具调用）**：先调 `prepare_canvas_upload`（传 `project_id`、`file_name`、`mime_type`、`file_size`）拿到 `upload_url`、`headers`、`object_name` 与 `mode`；使用 HTTP PUT（原样携带 `headers`）把本地二进制上传到 `upload_url`；返回 200 后调用 `create_upload_node`（传 `project_id`、`board_id`、`object_name`、`file_name`、`mime_type`、`file_size`、`mode`）拿到 `node_key`。
+   - **公网 URL 或小体积内联图片**：直接调用 `create_upload_node`，传入 `project_id` 及 `file_url`（公网 `http/https`）或 `file_base64`（小文件 Base64 / Data URL），返回 `node_key`。
+2. **用 `reference_nodes` 连线创建新的待运行生成节点**：
+   - 调用 `create_image_node` 或 `create_video_node` 时，把上一步返回的 `node_key` 填入 `reference_nodes: ["upload-..."]`。
+   - 服务端会自动在参考节点右侧排布新节点，并在画布上建立参考连线（单张参考图生成视频在确认运行时会自动对齐到视频节点的 `first_frame` 首帧口）。
 
 ## 查找与读取
 
-- `list_models`：按可选 `modality`（image / video / audio）和 `project_id` 列出当前可用生成模型及各类型默认模型 ID。需要指定 `model` 时先调用它，不要猜测模型名；省略 `model` 创建节点时服务端自动填入对应类型默认模型。
-- `search_canvas_nodes`：按 `type`（image / video / audio / text）、`name`、`tag`、`status` 筛选。`tag` 匹配标题或所在分组名。
-- `get_node_details`：入参 `node_key`。返回提示词、模型、比例、引用和产物。不在当前板就失败。
-- `list_canvas_boards`：列出当前项目全部子画板。返回 `board_id`、名称，以及哪一块是用户正在看的。
-- `get_canvas_board`：传入 `board_id`，读取那一块上的节点摘要。只读。之后的创建、连线和生成仍写在用户当前打开的板。
-
-这几步不改画布。
+- `list_canvas_projects`：列出可见画布项目及默认子画板 ID。只读。
+- `list_models`：按可选 `modality`（`image` / `video` / `audio`）和 `project_id` 列出可用生成模型、支持时长/比例及默认模型 ID。指定 `model` 前必须先调用，不要猜测模型名；省略 `model` 建节点时自动选用默认可用模型。
+- `list_canvas_boards`：传入 `project_id`，列出该项目全部子画板。
+- `get_canvas_board`：传入 `board_id`（可选 `project_id`），读取子画板上的节点摘要。只读。
+- `search_canvas_nodes`：传入 `board_id`，按 `type`（`image` / `video` / `audio` / `text`）、`name`、`tag`、`status` 筛选节点。
+- `get_node_details`：传入 `board_id` 和 `node_key`，读取提示词、模型、比例、时长、引用节点及产物地址 `artifact_url`。
 
 ## 创建与修改
 
-- `create_image_node` / `create_video_node` / `create_audio_node`：写入 `title`、`prompt`、`model`、`ratio`、`duration`、`reference_nodes`。节点状态是待运行，没有产物。
-- `update_image_node` / `update_video_node` / `update_audio_node`：用 `node_key` 改参数。类型必须和节点一致。
-- `disconnect_nodes`：`links` 里每条是 `source` 指向 `target` 的 `node_key`。只拆这个方向，反向边保留。两端没有这条边会失败。直接写入，不扣费。
-- `create_canvas_board`：传入 `name`，在当前项目新建一块空的子画板。不切换用户正在看的板。
-- `update_canvas_board`：传入 `board_id` 和 `name`，只改子画板名称。
-- `delete_canvas_board`：传入 `board_id`，删除该子画板及其节点。至少保留一块。只在用户明确要求删除该子画板时调用。
+- `create_ai_project`：传入 `name`（可选 `description`），新建画布项目与默认子画板。
+- `prepare_canvas_upload` / `create_upload_node`：上传参考图片/视频/音频并在画布落入 `upload` 节点，返回 `node_key`。
+- `create_image_node` / `create_video_node` / `create_audio_node`：传入 `project_id`、`title`、`prompt`，可选 `board_id`、`model`、`ratio`、`duration`（秒，如 10 秒视频传 `10`）、`reference_nodes`、`position`。创建后状态为 `PENDING_RUN`，不扣费。
+- `update_image_node` / `update_video_node` / `update_audio_node`：传入 `project_id`、`board_id`、`node_key` 修改待运行节点参数。
+- `disconnect_nodes`：传入 `project_id`、`board_id`、`links`（`{ source, target }` 数组），只拆该方向连线。
+- `create_canvas_board` / `update_canvas_board` / `delete_canvas_board`：在指定项目下新建、重命名或删除子画板（至少保留一块，仅在用户明确要求操作子画板时调用）。
 
-提示词里可以用 `{{node_key}}` 引用已有节点。服务端会换成该节点的产物地址或标题。引用不存在则整次失败。
+提示词里可以用 `{{node_key}}` 引用当前画板已有节点，服务端会替换成该节点的产物地址或标题；引用不存在则整次失败。
 
-## 运行与入库
+## 两段确认运行、轮询结果与资产入库
 
-- `run_node`：传入 `project_id`、`board_id`、`node_key`。节点必须是待运行且还没有产物。本步只返回估价、`run_id` 和 `confirmation_token`，不扣费、不入队。音频节点会失败，因为当前没有可用音频模型。
-- `confirm_canvas_run`：用户明确同意后，传入 `project_id`、`board_id`、`run_id` 和 `confirmation_token`。这一步才扣费并入队，产物写回同一个节点。
-- `save_asset`：传入 `node_key` 和 `folder_id`，把已有产物写入项目资产库。没有产物不能入库。
-- `rename_asset_file`：改已入库文件的文件名。传 `node_key` 或 `asset_id`，以及新文件名 `name`。节点还没入库会失败。
-- `create_asset_folder`：在项目资产库新建文件夹。`name` 必填。不传 `parent_folder_id` 时建在项目根下。
-- `rename_asset_folder`：重命名自定义文件夹。传 `folder_id` 和 `name`。预设文件夹不能改。
+- `run_node`：传入 `project_id`、`node_key`（可选 `board_id`）。节点必须是 `PENDING_RUN` 且尚无产物。若需运行音频节点，可先用 `list_models(modality="audio")` 确认当前账号有可用音频模型。本步只返回预估盒子币、`run_id` 和一次性 `confirmation_token`，不扣费。
+- `confirm_canvas_run`：向用户展示预估消耗并获得明确同意后，传入 `project_id`、`board_id`、`run_id` 和 `confirmation_token` 正式扣费入队。返回 `{ status: "queued" }` 后，图片通常数十秒、视频通常 1～3 分钟完成；可间隔调用 `get_node_details` 轮询直至 `status` 变为 `COMPLETED`，读取 `artifact_url` 交付给用户。
+- `save_asset` / `rename_asset_file` / `create_asset_folder` / `rename_asset_folder`：将已完成产物的节点存入项目资产库文件夹或整理命名。
 
-不要调用视频理解、导演台、视频剪辑、音频后期、成片拼接或复合主体。这些工具不存在。
+不要调用视频理解、导演台、多镜头剪辑拼接、字幕压制、音画合成导出或复合主体工具，这些工具当前未开放。

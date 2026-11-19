@@ -107,8 +107,8 @@ $escapedTarget = $target -replace '\\', '\\'
 Write-Output "Installed trackbox to $target"
 Write-Output ''
 Write-Output 'Next:'
-Write-Output '  trackbox login'
-Write-Output '  trackbox login --scope "canvas:read canvas:write canvas:run"  # enable generation'
+Write-Output '  trackbox login  # default scope: canvas:read canvas:write canvas:run'
+Write-Output '  trackbox login --scope "canvas:read canvas:write"  # read/write only'
 Write-Output ''
 Write-Output 'Desktop MCP config (absolute paths for Cursor / Claude Desktop):'
 Write-Output @"
