@@ -150,6 +150,62 @@ export const readProjects = (rpc) => {
   return [];
 };
 
+export const IMAGE_GENERATION_TOOL_NAMES = new Set([
+  'create_image_node',
+  'run_node',
+]);
+
+export const readToolProjectId = (args) => {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
+  const value = args.project_id ?? args.projectId;
+  return typeof value === 'string' ? value.trim() : '';
+};
+
+/** MCP CLI 没有当前画布。没选定项目时，生图调用停在本地，不转发到产品站。 */
+export const buildImageGenerationProjectGate = (projects) => {
+  const choices = [];
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const projectId = typeof project?.project_id === 'string' ? project.project_id.trim() : '';
+    const name = typeof project?.name === 'string' ? project.name.trim() : '';
+    if (!projectId || !name) continue;
+    choices.push({ project_id: projectId, name });
+  }
+  if (choices.length === 0) {
+    return {
+      ok: false,
+      needs_project: true,
+      code: 'NO_CANVAS_PROJECT',
+      projects: [],
+      message: '当前账号还没有画布项目。请告诉用户先在 TrackBox 创建项目，创建完成后再生成图片。不要编造 project_id，也不要继续调用生成工具。',
+    };
+  }
+  return {
+    ok: false,
+    needs_project: true,
+    code: 'PROJECT_SELECTION_REQUIRED',
+    projects: choices,
+    message: '生成图片前必须由用户选择画布项目。请把 projects 里的名称展示给用户，等用户明确选定后再带上对应 project_id 重新调用。不要自行挑选项目。',
+  };
+};
+
+export const imageGenerationProjectGate = (message) => {
+  if (!message || message.method !== 'tools/call') return null;
+  const toolName = typeof message.params?.name === 'string' ? message.params.name.trim() : '';
+  if (!IMAGE_GENERATION_TOOL_NAMES.has(toolName)) return null;
+  if (readToolProjectId(message.params?.arguments)) return null;
+  return { toolName };
+};
+
+export const mcpToolResultMessage = (id, payload) => ({
+  jsonrpc: '2.0',
+  id: id ?? null,
+  result: {
+    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+    structuredContent: payload,
+    isError: false,
+  },
+});
+
 export const formatAccount = ({ origin, scope, serverName, serverVersion, projects }) => {
   const lines = [
     '已连接 TrackBox',
@@ -507,6 +563,25 @@ const callToolCommand = async ({ file, toolName, rawArgs, json }) => {
       throw new Error('工具参数必须是合法 JSON 对象');
     }
   }
+  if (IMAGE_GENERATION_TOOL_NAMES.has(toolName) && !readToolProjectId(parsedArgs)) {
+    const { data: listed } = await withAutoRefreshMcp(file, (current) =>
+      callMcp(current, 'tools/call', {
+        name: 'list_canvas_projects',
+        arguments: { limit: 20 },
+      }, 1),
+    );
+    const gate = buildImageGenerationProjectGate(readProjects(listed));
+    if (json) {
+      process.stdout.write(`${JSON.stringify(gate, null, 2)}\n`);
+      return;
+    }
+    const lines = [gate.message];
+    for (const project of gate.projects) {
+      lines.push(`- ${project.name}  ${project.project_id}`);
+    }
+    process.stdout.write(`${lines.join('\n')}\n`);
+    return;
+  }
   const { data: rpc } = await withAutoRefreshMcp(file, (current) =>
     callMcp(current, 'tools/call', { name: toolName, arguments: parsedArgs }, 1),
   );
@@ -543,6 +618,18 @@ const runMcpStdio = async ({ file }) => {
     }
 
     try {
+      const pendingGate = imageGenerationProjectGate(parsed);
+      if (pendingGate) {
+        const { data: listed } = await withAutoRefreshMcp(file, (current) =>
+          callMcp(current, 'tools/call', {
+            name: 'list_canvas_projects',
+            arguments: { limit: 20 },
+          }, parsed.id ?? 1),
+        );
+        const gate = buildImageGenerationProjectGate(readProjects(listed));
+        process.stdout.write(`${JSON.stringify(mcpToolResultMessage(parsed.id, gate))}\n`);
+        continue;
+      }
       const { data: reply } = await withAutoRefreshMcp(file, async (current) => {
         const response = await fetch(current.mcpUrl, {
           method: 'POST',
