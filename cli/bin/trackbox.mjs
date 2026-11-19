@@ -29,6 +29,21 @@ export const normalizeOrigin = (value) => {
   return new URL(withProtocol).origin;
 };
 
+export const resolveCliArgv = (argv = process.argv, procEnv = process.env) => {
+  const rawJson = procEnv?.TRACKBOX_CLI_ARGS_JSON;
+  if (typeof rawJson === 'string' && rawJson.trim()) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed)) {
+        return [argv[0] || 'node', argv[1] || 'trackbox', ...parsed.map((item) => String(item))];
+      }
+    } catch {
+      // 解析失败时回退原始 argv
+    }
+  }
+  return argv;
+};
+
 export const parseArgs = (argv) => {
   const args = argv.slice(2);
   const options = { url: '', scope: '', json: false, positionals: [] };
@@ -128,12 +143,56 @@ export const writeCredentials = (file, data) => {
   }
 };
 
+export const extractErrorText = (rawText, fallback = '工具执行失败') => {
+  if (typeof rawText !== 'string' || !rawText.trim()) return fallback;
+  const trimmed = rawText.trim();
+  try {
+    const body = JSON.parse(trimmed);
+    if (body && typeof body === 'object') {
+      if (typeof body.error_description === 'string' && body.error_description.trim()) {
+        return body.error_description.trim();
+      }
+      if (typeof body.error === 'string' && body.error.trim()) {
+        return body.error.trim();
+      }
+      if (
+        body.error
+        && typeof body.error === 'object'
+        && typeof body.error.message === 'string'
+        && body.error.message.trim()
+      ) {
+        return body.error.message.trim();
+      }
+      if (typeof body.message === 'string' && body.message.trim()) {
+        return body.message.trim();
+      }
+      if (Array.isArray(body.message) && body.message.length > 0) {
+        return body.message.map((item) => String(item)).join('; ');
+      }
+    }
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+};
+
+export const formatCliError = (error) => {
+  const raw = error instanceof Error ? error.message : String(error ?? '');
+  if (raw === 'fetch failed') {
+    return '无法连接服务端，请检查网络连接或使用 --url 指定产品站地址';
+  }
+  return extractErrorText(raw, '执行失败');
+};
+
 export const readProjects = (rpc) => {
   if (!rpc || typeof rpc !== 'object') {
     throw new Error('MCP 返回了无法识别的内容');
   }
   if (rpc.error?.message) {
-    throw new Error(rpc.error.message);
+    throw new Error(extractErrorText(rpc.error.message, rpc.error.message));
+  }
+  if (rpc.result?.isError) {
+    throw new Error(extractErrorText(rpc.result?.content?.[0]?.text, '读取画布项目失败'));
   }
   const structured = rpc.result?.structuredContent;
   if (Array.isArray(structured?.projects)) {
@@ -143,7 +202,7 @@ export const readProjects = (rpc) => {
   if (typeof text === 'string' && text.trim()) {
     const parsed = JSON.parse(text);
     if (parsed?.error) {
-      throw new Error(String(parsed.error));
+      throw new Error(extractErrorText(text, String(parsed.error)));
     }
     return Array.isArray(parsed?.projects) ? parsed.projects : [];
   }
@@ -190,6 +249,7 @@ const usage = () => `TrackBox CLI ${VERSION}
 
   trackbox login --url https://mcp.trackbox.top
   trackbox login --scope "canvas:read canvas:write"
+  trackbox login --scope "canvas:read canvas:write canvas:run"
   trackbox account --json
   trackbox tools --json
   trackbox call list_canvas_projects '{"limit":5}'
@@ -198,17 +258,7 @@ const usage = () => `TrackBox CLI ${VERSION}
 const readErrorMessage = async (response) => {
   const text = await response.text();
   if (!text.trim()) return `HTTP ${response.status}`;
-  try {
-    const body = JSON.parse(text);
-    if (typeof body.error_description === 'string' && body.error_description) {
-      return body.error_description;
-    }
-    if (typeof body.message === 'string' && body.message) return body.message;
-    if (typeof body.error === 'string' && body.error) return body.error;
-  } catch {
-    return text.trim();
-  }
-  return text.trim();
+  return extractErrorText(text, `HTTP ${response.status}`);
 };
 
 /**
@@ -230,6 +280,7 @@ export const browserOpenCommand = (url, platform = process.platform) => {
 };
 
 const openBrowser = (url) => {
+  if (process.env.TRACKBOX_NO_OPEN_BROWSER === '1') return;
   const command = browserOpenCommand(url);
   execFile(command.file, command.args, command.options);
 };
@@ -511,11 +562,10 @@ const callToolCommand = async ({ file, toolName, rawArgs, json }) => {
     callMcp(current, 'tools/call', { name: toolName, arguments: parsedArgs }, 1),
   );
   if (rpc.error?.message) {
-    throw new Error(rpc.error.message);
+    throw new Error(extractErrorText(rpc.error.message, rpc.error.message));
   }
   if (rpc.result?.isError) {
-    const errText = rpc.result?.content?.[0]?.text || '工具执行失败';
-    throw new Error(errText);
+    throw new Error(extractErrorText(rpc.result?.content?.[0]?.text, '工具执行失败'));
   }
   const output = rpc.result?.structuredContent ?? rpc.result;
   if (json) {
@@ -611,9 +661,11 @@ const doctor = async (origin) => {
 };
 
 export const run = async (argv, env = {}) => {
+  const effectiveArgv = resolveCliArgv(argv, env.procEnv ?? process.env);
+  delete process.env.TRACKBOX_CLI_ARGS_JSON;
   const home = env.home || homedir();
   const file = env.credentialsFile || credentialsFile(home);
-  const { command, options } = parseArgs(argv);
+  const { command, options } = parseArgs(effectiveArgv);
   const origin = normalizeOrigin(options.url || env.url || '');
   const scope = options.scope.trim() || DEFAULT_SCOPE;
 
@@ -666,7 +718,7 @@ const isDirectRun = process.argv[1]
 
 if (isDirectRun) {
   run(process.argv).catch((error) => {
-    process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`error: ${formatCliError(error)}\n`);
     process.exitCode = 1;
   });
 }

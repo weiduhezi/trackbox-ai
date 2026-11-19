@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   browserOpenCommand,
   buildAuthorizeUrl,
   createPkcePair,
+  extractErrorText,
   formatAccount,
+  formatCliError,
   formatTools,
   parseArgs,
   readCredentials,
   readProjects,
+  resolveCliArgv,
   shouldRefresh,
   writeCredentials,
 } from '../bin/trackbox.mjs';
@@ -133,4 +137,65 @@ test('工具错误不会被当成空项目', () => {
     }),
     /缺少权限/,
   );
+});
+
+test('CLI 工具报错提取可读文案，不再原样打印 JSON 字符串', () => {
+  const raw = JSON.stringify({ error: '节点不存在: fake-key', status: 404 });
+  assert.equal(extractErrorText(raw), '节点不存在: fake-key');
+  assert.equal(formatCliError(new Error(raw)), '节点不存在: fake-key');
+  assert.equal(
+    extractErrorText(JSON.stringify({ message: ['标题不能为空', '提示词不能为空'] })),
+    '标题不能为空; 提示词不能为空',
+  );
+  assert.match(formatCliError(new Error('fetch failed')), /--url/);
+});
+
+test('安装脚本检查 Node 20+ 并在结尾打印绝对路径 MCP 配置', () => {
+  const testDir = dirname(fileURLToPath(import.meta.url));
+  const shContent = readFileSync(join(testDir, '..', 'install.sh'), 'utf8');
+  const ps1Content = readFileSync(join(testDir, '..', 'install.ps1'), 'utf8');
+
+  assert.match(shContent, /Node\.js 20 or newer is required/);
+  assert.match(shContent, /"mcpServers"/);
+  assert.match(shContent, /canvas:run/);
+
+  assert.match(ps1Content, /Node\.js 20 or newer is required/);
+  assert.match(ps1Content, /"mcpServers"/);
+  assert.match(ps1Content, /canvas:run/);
+  assert.match(ps1Content, /TRACKBOX_CLI_ARGS_JSON/);
+});
+
+test('Windows PowerShell 包装器参数数组可无损还原双引号 JSON 参数', () => {
+  const argv = resolveCliArgv(
+    ['node', 'trackbox'],
+    {
+      TRACKBOX_CLI_ARGS_JSON: JSON.stringify(['call', 'list_models', '{"modality":"image"}']),
+    },
+  );
+  const parsed = parseArgs(argv);
+  assert.equal(parsed.command, 'call');
+  assert.deepEqual(parsed.options.positionals, ['list_models', '{"modality":"image"}']);
+});
+
+test('Claude Code 与 Cursor 插件清单结构合法且字段严格对齐', () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const marketplace = JSON.parse(
+    readFileSync(join(repoRoot, '.claude-plugin', 'marketplace.json'), 'utf8'),
+  );
+  const claudePlugin = JSON.parse(
+    readFileSync(join(repoRoot, '.claude-plugin', 'plugin.json'), 'utf8'),
+  );
+  const cursorPlugin = JSON.parse(
+    readFileSync(join(repoRoot, '.cursor-plugin', 'plugin.json'), 'utf8'),
+  );
+  const mcpJson = JSON.parse(readFileSync(join(repoRoot, '.mcp.json'), 'utf8'));
+
+  assert.equal(marketplace.name, 'trackbox');
+  assert.equal(marketplace.plugins[0].name, 'trackbox');
+  assert.equal(claudePlugin.name, 'trackbox');
+  assert.equal('displayName' in claudePlugin, false);
+  assert.equal(cursorPlugin.displayName, 'TrackBox');
+  assert.equal(cursorPlugin.skills, './skills/');
+  assert.equal(cursorPlugin.mcpServers, './.mcp.json');
+  assert.deepEqual(mcpJson.mcpServers.trackbox, { command: 'trackbox', args: ['mcp'] });
 });

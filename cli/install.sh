@@ -5,9 +5,16 @@
 set -eu
 
 command -v node >/dev/null 2>&1 || {
-  printf 'error: node is required\n' >&2
+  printf 'error: Node.js 20 or newer is required\n' >&2
   exit 1
 }
+
+NODE_BIN="$(command -v node)"
+NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || printf '0')"
+if [ "${NODE_MAJOR}" -lt 20 ] 2>/dev/null; then
+  printf 'error: Node.js 20 or newer is required (found %s)\n' "$(node -v 2>/dev/null || printf 'unknown')" >&2
+  exit 1
+fi
 
 PREFIX="${HOME}/.local"
 BIN_DIR="${PREFIX}/bin"
@@ -27,9 +34,12 @@ else
     "https://raw.githubusercontent.com/weiduhezi/trackbox-ai/main/cli/bin/trackbox.mjs"
 fi
 
-cat > "${BIN_DIR}/trackbox" <<'EOF'
+cat > "${BIN_DIR}/trackbox" <<EOF
 #!/bin/sh
-exec node "${HOME}/.local/lib/trackbox/trackbox.mjs" "$@"
+if [ -x "${NODE_BIN}" ]; then
+  exec "${NODE_BIN}" "\${HOME}/.local/lib/trackbox/trackbox.mjs" "\$@"
+fi
+exec node "\${HOME}/.local/lib/trackbox/trackbox.mjs" "\$@"
 EOF
 chmod 0755 "${BIN_DIR}/trackbox" "${LIB_DIR}/trackbox.mjs"
 
@@ -42,4 +52,9 @@ case ":${PATH}:" in
     printf '  export PATH="%s:$PATH"\n' "$BIN_DIR"
     ;;
 esac
-printf '\nThen run: trackbox doctor\n'
+
+printf '\nNext:\n'
+printf '  trackbox login\n'
+printf '  trackbox login --scope "canvas:read canvas:write canvas:run"  # enable generation\n'
+printf '\nDesktop MCP config (absolute paths for Cursor / Claude Desktop):\n'
+printf '{\n  "mcpServers": {\n    "trackbox": {\n      "command": "%s",\n      "args": ["%s/trackbox.mjs", "mcp"]\n    }\n  }\n}\n' "$NODE_BIN" "$LIB_DIR"
