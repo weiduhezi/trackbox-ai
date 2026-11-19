@@ -17,19 +17,23 @@ description: 底层系统与集成协作。创意助手的画布 JSON 工具规�
 - **已有项目**：把项目名称列表展示给用户，等用户明确选定后再使用对应的 `project_id`。不要自行代选项目，即使用户只有一个项目。
 - 选定 `project_id` 后，后续工具全部带上该 `project_id`（`board_id` 省略时服务端默认落到该项目的默认子画板）。
 
-## 第二步：参考图 / 参考视频先放到画布上，再连线生成新节点
+## 第二步：参考图 / 多张参考图 / 图+视频混合先放到画布上，再连线生成新节点
 
-如果用户提供了产品实拍图、风格参考图、首帧图或参考视频，**不能**把外部路径或外链直接塞进生成节点参数，必须按以下两步先落画布、再连线：
+如果用户提供了产品实拍图、多张角色/场景参考图、首帧图或参考视频/参考音频，**不能**把外部路径或外链直接塞进生成节点参数，必须按以下两步先落画布、再连线：
 
-1. **先把参考素材落成画布 `upload` 节点，拿到 `node_key`**：
-   - **本机文件（推荐 CLI 一键上传）**：终端可用 `trackbox` 时，直接运行：
-     `trackbox upload <本地文件路径> --project <project_id> [--board <board_id>] [--title <标题>] --json`
-     该命令会自动完成预签名、二进制 PUT 直传与 `create_upload_node` 落板，返回 `node_key`（形如 `upload-...`）。
-   - **本机文件（纯 MCP 工具调用）**：先调 `prepare_canvas_upload`（传 `project_id`、`file_name`、`mime_type`、`file_size`）拿到 `upload_url`、`headers`、`object_name` 与 `mode`；使用 HTTP PUT（原样携带 `headers`）把本地二进制上传到 `upload_url`；返回 200 后调用 `create_upload_node`（传 `project_id`、`board_id`、`object_name`、`file_name`、`mime_type`、`file_size`、`mode`）拿到 `node_key`。
-   - **公网 URL 或小体积内联图片**：直接调用 `create_upload_node`，传入 `project_id` 及 `file_url`（公网 `http/https`）或 `file_base64`（小文件 Base64 / Data URL），返回 `node_key`。
+1. **先把 1 个或多个参考素材落成画布独立 `upload` 节点，拿到 `node_key` / `node_keys`**：
+   - **本机单文件或多文件批量直传（推荐 CLI 一键上传，支持多图及图+视频+音频混传）**：终端可用 `trackbox` 时，直接运行（单次最多 20 个文件）：
+     - 单文件：`trackbox upload ./product.jpg --project <project_id> [--board <board_id>] [--title <标题>] --json`
+     - 多图或图+视频混合：`trackbox upload ./role1.png ./scene2.jpg ./motion.mp4 --project <project_id> [--board <board_id>] --json`
+     该命令会自动并发完成预签名、二进制 PUT 直传与单次原子 `create_upload_node` 落板，每个素材落为一个独立 `upload` 节点并竖排对齐，返回有序 `node_keys: ["upload-...", ...]`。
+   - **本机文件（纯 MCP 工具调用）**：
+     - 单文件传顶层 `file_name` + `mime_type` + `file_size`；多图或图+视频+音频混合传 `files: [{ file_name, mime_type, file_size }, ...]` 调用 `prepare_canvas_upload`，拿到 `upload_url`（或批量 `items`）。
+     - 对每个 `upload_url` 执行 HTTP PUT（原样携带对应 `headers`）上传二进制，返回 200 后调用一次 `create_upload_node`（单文件传顶层字段，多文件传 `files` 数组），一次性拿到 `node_keys`。
+   - **公网 URL 或小体积内联素材**：直接调用 `create_upload_node`，单文件传 `file_url` / `file_base64`，多文件传 `files: [{ file_url }, ...]`，返回 `node_keys`。
 2. **用 `reference_nodes` 连线创建新的待运行生成节点**：
-   - 调用 `create_image_node` 或 `create_video_node` 时，把上一步返回的 `node_key` 填入 `reference_nodes: ["upload-..."]`。
-   - 服务端会自动在参考节点右侧排布新节点，并在画布上建立参考连线（单张参考图生成视频在确认运行时会自动对齐到视频节点的 `first_frame` 首帧口）。
+   - **图片生成（支持 1 张或多张参考图）**：调用 `create_image_node`，将图片节点的 `node_keys` 填入 `reference_nodes: ["upload-1", "upload-2"]`。注意：**图片生成节点仅接受图片或文本参考**，不能把视频/音频节点塞进 `create_image_node`（否则会报 400）。
+   - **视频生成（支持单图首帧、多张参考图、以及图+视频+音频混合参考）**：调用 `create_video_node`，将全部参考节点的 `node_keys` 填入 `reference_nodes: ["upload-img1", "upload-img2", "upload-vid1"]`。服务端会按各源节点的真实媒体类型自动建立连线（图片连 `input_images`，视频连 `input_video`，音频连 `input_audio`；单张参考图生成视频在确认运行时自动对齐到 `first_frame` 首帧口）。
+   - 支持视频生成模式的模型（可通过 `list_models(modality="video")` 查看 `video_generation_types`）还可在 `create_video_node` / `update_video_node` 中传入 `video_generation_type`（`frame` 单图首帧、`omni` 多图或图+视频/音频全能参考、`edit` 基于源视频改画面、`extend` 视频续写延长）与 `generate_audio`（`true` / `false`）。
 
 ## 查找与读取
 
@@ -43,8 +47,8 @@ description: 底层系统与集成协作。创意助手的画布 JSON 工具规�
 ## 创建与修改
 
 - `create_ai_project`：传入 `name`（可选 `description`），新建画布项目与默认子画板。
-- `prepare_canvas_upload` / `create_upload_node`：上传参考图片/视频/音频并在画布落入 `upload` 节点，返回 `node_key`。
-- `create_image_node` / `create_video_node` / `create_audio_node`：传入 `project_id`、`title`、`prompt`，可选 `board_id`、`model`、`ratio`、`duration`（秒，如 10 秒视频传 `10`）、`reference_nodes`、`position`。创建后状态为 `PENDING_RUN`，不扣费。
+- `prepare_canvas_upload` / `create_upload_node`：支持单个文件或批量 `files` 数组（最多 20 个，支持多张参考图及图+视频+音频混合上传），单次原子落入画布独立 `upload` 节点并返回有序 `node_keys`。
+- `create_image_node` / `create_video_node` / `create_audio_node`：传入 `project_id`、`title`、`prompt`，可选 `board_id`、`model`、`ratio`、`duration`（秒，如 10 秒视频传 `10`）、`reference_nodes`、`position`；视频节点还支持可选 `video_generation_type`（`omni` / `frame` / `edit` / `extend`）与 `generate_audio`（布尔值）。创建后状态为 `PENDING_RUN`，不扣费。
 - `update_image_node` / `update_video_node` / `update_audio_node`：传入 `project_id`、`board_id`、`node_key` 修改待运行节点参数。
 - `disconnect_nodes`：传入 `project_id`、`board_id`、`links`（`{ source, target }` 数组），只拆该方向连线。
 - `create_canvas_board` / `update_canvas_board` / `delete_canvas_board`：在指定项目下新建、重命名或删除子画板（至少保留一块，仅在用户明确要求操作子画板时调用）。
