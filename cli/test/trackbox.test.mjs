@@ -19,6 +19,7 @@ import {
   readCredentials,
   readProjects,
   resolveCliArgv,
+  sanitizeCliToolArgs,
   shouldRefresh,
   uploadLocalCanvasFile,
   uploadLocalCanvasFiles,
@@ -334,6 +335,61 @@ test('trackbox-creative-cli SKILL 覆盖建项目、参考图上传落板与 ref
   assert.equal(skillText.includes('告诉用户先在 TrackBox 创建一个画布项目'), false);
   assert.match(skillText, /node_keys/);
   assert.match(skillText, /video_generation_type/);
+  assert.match(skillText, /不要传 `position`/);
+  assert.match(skillText, /create_text_node/);
+  assert.match(skillText, /create_video_processing_node/);
+  assert.match(skillText, /create_image_processing_node/);
+  assert.match(skillText, /connect_nodes/);
+  assert.match(skillText, /image-processing/);
+  assert.match(skillText, /video-processing/);
+});
+
+test('sanitizeCliToolArgs 检测并剥离 CLI 建点/改点/上传节点中的盲猜 position 且拦截非对象参数', () => {
+  assert.deepEqual(
+    sanitizeCliToolArgs('create_text_node', {
+      project_id: 'proj_a',
+      text: '开场',
+      position: { x: 0, y: 0 },
+    }),
+    {
+      project_id: 'proj_a',
+      text: '开场',
+    },
+  );
+
+  assert.deepEqual(
+    sanitizeCliToolArgs('create_video_node', {
+      project_id: 'proj_a',
+      title: '太阳轮和履带驱动',
+      prompt: '机械齿轮带动履带',
+      position: { x: 0, y: 0 },
+      basePosition: { x: 80, y: 80 },
+    }),
+    {
+      project_id: 'proj_a',
+      title: '太阳轮和履带驱动',
+      prompt: '机械齿轮带动履带',
+    },
+  );
+
+  assert.deepEqual(
+    sanitizeCliToolArgs('create_upload_node', {
+      project_id: 'proj_a',
+      position: { x: 100, y: 100 },
+      files: [
+        { object_name: 'a.png', file_name: 'a.png', mime_type: 'image/png', file_size: 10, position: { x: 10, y: 20 } },
+      ],
+    }),
+    {
+      project_id: 'proj_a',
+      files: [
+        { object_name: 'a.png', file_name: 'a.png', mime_type: 'image/png', file_size: 10 },
+      ],
+    },
+  );
+
+  assert.throws(() => sanitizeCliToolArgs('create_video_node', ['not-an-object']), /JSON 对象/);
+  assert.throws(() => sanitizeCliToolArgs('create_video_node', null), /JSON 对象/);
 });
 
 test('uploadLocalCanvasFiles 支持多张参考图与视频混合一次批量预签名、并发 PUT 与单次原子落板', async () => {

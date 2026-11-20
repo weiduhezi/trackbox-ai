@@ -643,6 +643,52 @@ const listTools = async ({ file, json }) => {
   process.stdout.write(`${formatTools(tools)}\n`);
 };
 
+const CLI_BLIND_POSITION_TOOLS = new Set([
+  'create_image_node',
+  'create_video_node',
+  'create_audio_node',
+  'create_text_node',
+  'create_image_processing_node',
+  'create_video_processing_node',
+  'update_image_node',
+  'update_video_node',
+  'update_audio_node',
+  'update_text_node',
+  'update_image_processing_node',
+  'update_video_processing_node',
+  'create_upload_node',
+]);
+
+/**
+ * 校验并清洗 CLI 工具调用参数：
+ * - 确保参数为普通 JSON 对象（拦截数组、null、原始值）
+ * - 创建/更新/上传画布节点时自动检测并剥离盲猜像素坐标 position，统一交由服务端自动避让排布
+ */
+export const sanitizeCliToolArgs = (toolName, args) => {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('工具参数必须是合法 JSON 对象');
+  }
+  const trimmedName = String(toolName || '').trim();
+  if (!CLI_BLIND_POSITION_TOOLS.has(trimmedName)) {
+    return args;
+  }
+  const next = { ...args };
+  delete next.position;
+  delete next.basePosition;
+  delete next.base_position;
+  if (Array.isArray(next.files)) {
+    next.files = next.files.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item) || !('position' in item)) {
+        return item;
+      }
+      const cloned = { ...item };
+      delete cloned.position;
+      return cloned;
+    });
+  }
+  return next;
+};
+
 const callToolCommand = async ({ file, toolName, rawArgs, json }) => {
   if (!toolName) {
     throw new Error('请指定工具名，例如: trackbox call list_canvas_projects');
@@ -655,8 +701,9 @@ const callToolCommand = async ({ file, toolName, rawArgs, json }) => {
       throw new Error('工具参数必须是合法 JSON 对象');
     }
   }
+  const sanitizedArgs = sanitizeCliToolArgs(toolName, parsedArgs);
   const { data: rpc } = await withAutoRefreshMcp(file, (current) =>
-    callMcp(current, 'tools/call', { name: toolName, arguments: parsedArgs }, 1),
+    callMcp(current, 'tools/call', { name: toolName, arguments: sanitizedArgs }, 1),
   );
   if (rpc.error?.message) {
     throw new Error(extractErrorText(rpc.error.message, rpc.error.message));
@@ -926,6 +973,24 @@ const runMcpStdio = async ({ file }) => {
       continue;
     }
 
+    let outboundBody = trimmed;
+    if (
+      parsed?.method === 'tools/call'
+      && typeof parsed?.params?.name === 'string'
+      && parsed?.params?.arguments
+      && typeof parsed.params.arguments === 'object'
+      && !Array.isArray(parsed.params.arguments)
+      && CLI_BLIND_POSITION_TOOLS.has(parsed.params.name.trim())
+    ) {
+      outboundBody = JSON.stringify({
+        ...parsed,
+        params: {
+          ...parsed.params,
+          arguments: sanitizeCliToolArgs(parsed.params.name, parsed.params.arguments),
+        },
+      });
+    }
+
     try {
       const { data: reply } = await withAutoRefreshMcp(file, async (current) => {
         const response = await fetch(current.mcpUrl, {
@@ -935,7 +1000,7 @@ const runMcpStdio = async ({ file }) => {
             Accept: 'application/json',
             Authorization: `Bearer ${current.accessToken}`,
           },
-          body: trimmed,
+          body: outboundBody,
         });
         if (response.status === 401) {
           throw Object.assign(new Error('访问令牌被拒绝'), { status: 401 });
